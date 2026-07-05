@@ -1,0 +1,44 @@
+{
+  "name": "ia-project-indexer",
+  "version": "1.0.0",
+  "description": "Ultra-compact project indexer for LLMs — cut AI token usage by up to 99%. Works with Claude, ChatGPT, Gemini, Cursor and any AI assistant.",
+  "main": "index.js",
+  "bin": {
+    "ai-index": "./index.js"
+  },
+  "scripts": {
+    "test": "node test/test.js"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/RaffyRod/IA-Project-indexer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/RaffyRod/IA-Project-indexer/issues"
+  },
+  "homepage": "https://github.com/RaffyRod/IA-Project-indexer#readme",
+  "author": "RaffyRod <elraffy3@gmail.com>",
+  "license": "MIT",
+  "engines": {
+    "node": ">=16"
+  },
+  "keywords": [
+    "llm",
+    "ai",
+    "tokens",
+    "token-reduction",
+    "indexer",
+    "codebase",
+    "context",
+    "claude",
+    "chatgpt",
+    "gemini",
+    "cursor",
+    "copilot"
+  ],
+  "files": [
+    "index.js",
+    "README.md",
+    "LICENSE"
+  ]
+}
