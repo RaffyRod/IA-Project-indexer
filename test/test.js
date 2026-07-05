@@ -3,8 +3,8 @@
 /**
  * Smoke tests for ai-index. Zero dependencies — plain node + assert.
  * Creates a fixture project in a temp dir, runs the CLI against it and
- * verifies every command. AI_INDEX_HOME points the global registry to a
- * temp dir so tests never touch the user's real ~/.ai-index.
+ * verifies every command. IA_INDEX_HOME points the global registry to a
+ * temp dir so tests never touch the user's real ~/.ia-index.
  * Run with: npm test
  */
 
@@ -19,7 +19,7 @@ const { extractJsTs, extractPy, extractGo, extractJavaCs, extractPhp, extractRub
 
 // Isolated global registry for the whole test run
 const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-index-home-'));
-const ENV = { ...process.env, AI_INDEX_HOME: tempHome };
+const ENV = { ...process.env, IA_INDEX_HOME: tempHome };
 
 function cli(args) {
   return execFileSync('node', [CLI, ...args], { encoding: 'utf8', env: ENV });
@@ -210,7 +210,7 @@ write('secret-folder/hidden.ts', 'export class Hidden {}\n');
 // ---- index ----
 
 const indexOutput = cli(['index', fixture, '--no-claude']);
-const indexPath = path.join(fixture, '.ai-index', 'PROJECT-INDEX.md');
+const indexPath = path.join(fixture, '.ia-index', 'PROJECT-INDEX.md');
 const index = fs.readFileSync(indexPath, 'utf8');
 
 ok('`index` reports success with stats', () => {
@@ -331,7 +331,7 @@ ok('`list` shows the fixture project', () => {
 
 // ---- export / import ----
 
-const exportFile = path.join(tempHome, 'exported.ai-index.json');
+const exportFile = path.join(tempHome, 'exported.ia-index.json');
 
 ok('`export --out` creates a portable JSON file with the index', () => {
   const out = cli(['export', fixture, '--out', exportFile]);
@@ -357,7 +357,7 @@ const importName = path.basename(importTarget);
 ok('`import` loads an exported index on another machine (fresh folder)', () => {
   const out = cli(['import', exportFile, importTarget]);
   assert.match(out, /Import complete/);
-  const imported = fs.readFileSync(path.join(importTarget, '.ai-index', 'PROJECT-INDEX.md'), 'utf8');
+  const imported = fs.readFileSync(path.join(importTarget, '.ia-index', 'PROJECT-INDEX.md'), 'utf8');
   assert.ok(imported.includes('class BaseApi'));
   const claude = fs.readFileSync(path.join(importTarget, 'CLAUDE.md'), 'utf8');
   assert.match(claude, /PROJECT-INDEX\.md/);
@@ -392,7 +392,7 @@ fs.rmSync(importTarget, { recursive: true, force: true });
 ok('`remove --yes` deletes index, registry entry and all AI config blocks', () => {
   const out = cli(['remove', fixture, '--yes']);
   assert.match(out, /removed/);
-  assert.ok(!fs.existsSync(path.join(fixture, '.ai-index')));
+  assert.ok(!fs.existsSync(path.join(fixture, '.ia-index')));
   assert.ok(!fs.existsSync(path.join(fixture, 'CLAUDE.md'))); // only contained our block
   assert.ok(!fs.existsSync(path.join(fixture, 'AGENTS.md'))); // only contained our block
   const rules = fs.readFileSync(path.join(fixture, '.cursorrules'), 'utf8');
@@ -413,6 +413,76 @@ ok('`remove` preserves user content in CLAUDE.md', () => {
   const claude = fs.readFileSync(path.join(fixture, 'CLAUDE.md'), 'utf8');
   assert.ok(claude.includes('Always use TypeScript.'));
   assert.ok(!claude.includes('ai-index:start'));
+});
+
+// ---- quiet / if-changed / legacy migration ----
+
+ok('`update --quiet` prints a single friendly line', () => {
+  const out = cli(['update', fixture, '--quiet', '--no-claude']);
+  assert.match(out.trim(), /^⚡ ia-index: .+ updated \(\d+ files, \d+% tokens saved\)$/);
+});
+
+ok('`update --if-changed` skips instantly when index is fresh', () => {
+  const out = cli(['update', fixture, '--if-changed', '--no-claude']);
+  assert.match(out, /already fresh/);
+});
+
+ok('`update --if-changed` re-indexes when a file changed', () => {
+  const now = new Date();
+  fs.utimesSync(path.join(fixture, 'src/api/UserApi.ts'), now, now);
+  const out = cli(['update', fixture, '--if-changed', '--quiet', '--no-claude']);
+  assert.match(out, /updated/);
+});
+
+ok('legacy .ai-index folder is migrated away on index', () => {
+  const legacy = path.join(fixture, '.ai-index');
+  fs.mkdirSync(legacy, { recursive: true });
+  fs.writeFileSync(path.join(legacy, 'PROJECT-INDEX.md'), 'old', 'utf8');
+  cli(['index', fixture, '--no-claude']);
+  assert.ok(!fs.existsSync(legacy));
+  assert.ok(fs.existsSync(path.join(fixture, '.ia-index', 'PROJECT-INDEX.md')));
+});
+
+// ---- hook (pre-commit) ----
+
+ok('`hook` installs a pre-commit hook in .git/hooks', () => {
+  fs.mkdirSync(path.join(fixture, '.git'), { recursive: true });
+  const out = cli(['hook', fixture]);
+  assert.match(out, /hook installed/);
+  const hook = fs.readFileSync(path.join(fixture, '.git', 'hooks', 'pre-commit'), 'utf8');
+  assert.ok(hook.startsWith('#!/bin/sh'));
+  assert.ok(hook.includes('ia-index update --quiet --if-changed --no-ai-config'));
+});
+
+ok('`hook` re-run updates the block without duplicating it', () => {
+  cli(['hook', fixture]);
+  const hook = fs.readFileSync(path.join(fixture, '.git', 'hooks', 'pre-commit'), 'utf8');
+  const count = (hook.match(/>>> ia-index pre-commit hook >>>/g) || []).length;
+  assert.strictEqual(count, 1);
+});
+
+ok('`hook` prefers .husky/pre-commit when Husky is present', () => {
+  const huskyDir = path.join(fixture, '.husky');
+  fs.mkdirSync(huskyDir, { recursive: true });
+  fs.writeFileSync(path.join(huskyDir, 'pre-commit'), 'npx lint-staged\n', 'utf8');
+  const out = cli(['hook', 'install', fixture]);
+  assert.match(out, /Husky/);
+  const hook = fs.readFileSync(path.join(huskyDir, 'pre-commit'), 'utf8');
+  assert.ok(hook.includes('npx lint-staged')); // user content preserved
+  assert.ok(hook.includes('ia-index update'));
+});
+
+ok('`hook remove` strips the block and preserves user content', () => {
+  cli(['hook', 'remove', fixture]);
+  const hook = fs.readFileSync(path.join(fixture, '.husky', 'pre-commit'), 'utf8');
+  assert.ok(hook.includes('npx lint-staged'));
+  assert.ok(!hook.includes('ia-index update'));
+  fs.rmSync(path.join(fixture, '.husky'), { recursive: true, force: true });
+});
+
+ok('`hook remove` deletes a hook file that only contained our block', () => {
+  cli(['hook', 'remove', fixture]); // now targets .git/hooks/pre-commit
+  assert.ok(!fs.existsSync(path.join(fixture, '.git', 'hooks', 'pre-commit')));
 });
 
 // ---- stats ----
@@ -439,11 +509,11 @@ ok('`clean --yes` clears the global registry', () => {
   assert.match(cli(['list']), /No projects indexed yet/);
 });
 
-ok('`clean --all --yes` also deletes project .ai-index folders', () => {
+ok('`clean --all --yes` also deletes project .ia-index folders', () => {
   cli(['index', fixture, '--no-claude']);
-  assert.ok(fs.existsSync(path.join(fixture, '.ai-index')));
+  assert.ok(fs.existsSync(path.join(fixture, '.ia-index')));
   cli(['clean', '--all', '--yes']);
-  assert.ok(!fs.existsSync(path.join(fixture, '.ai-index')));
+  assert.ok(!fs.existsSync(path.join(fixture, '.ia-index')));
 });
 
 // ---- help / version ----

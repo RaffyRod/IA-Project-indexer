@@ -1,6 +1,6 @@
 {
   "name": "ia-project-indexer",
-  "version": "1.3.0",
+  "version": "1.4.0",
   "description": "IA Project Indexer — ultra-compact codebase indexer for LLMs. Cut AI token usage by up to 99%. Generates one portable Markdown index your AI assistant reads instead of exploring your code. Works with Claude, ChatGPT, Gemini, Cursor, Copilot and any AI assistant.",
   "main": "index.js",
   "bin": {

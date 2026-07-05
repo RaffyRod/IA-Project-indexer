@@ -4,7 +4,7 @@
  *
  * Instead of letting your AI assistant explore the codebase (thousands of
  * tokens in searches and file reads), it reads ONE compact file:
- * .ai-index/PROJECT-INDEX.md
+ * .ia-index/PROJECT-INDEX.md
  *
  * Commands:
  *   ia-index                       Interactive menu
@@ -21,7 +21,7 @@
  *   --out <file>  With export: custom output file
  *   --no-claude   Don't touch CLAUDE.md when indexing/importing
  *   --yes, -y     Skip confirmation prompts
- *   --all         With clean: also delete every project's .ai-index folder
+ *   --all         With clean: also delete every project's .ia-index folder
  *
  * Zero dependencies. Node >= 16. Windows / macOS / Linux. 100% local.
  */
@@ -36,9 +36,12 @@ const readline = require('readline');
 const VERSION = require('./package.json').version;
 const EXPORT_FORMAT = 'ia-project-indexer/1';
 const MAX_IMPORT_SIZE = 10 * 1024 * 1024; // 10MB cap for imported files
-// AI_INDEX_HOME override keeps tests fully isolated from the real registry.
-const HOME_DIR = process.env.AI_INDEX_HOME || path.join(os.homedir(), '.ai-index');
+// IA_INDEX_HOME override keeps tests fully isolated from the real registry.
+const HOME_DIR = process.env.IA_INDEX_HOME || path.join(os.homedir(), '.ia-index');
 const REGISTRY = path.join(HOME_DIR, 'registry.json');
+const LEGACY_HOME = path.join(os.homedir(), '.ai-index'); // pre-1.4.0 location
+const INDEX_DIR = '.ia-index';
+const LEGACY_INDEX_DIR = '.ai-index'; // pre-1.4.0 folder name inside projects
 
 // ANSI colors — auto-disabled on non-TTY output (pipes, CI) and with NO_COLOR.
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
@@ -54,7 +57,7 @@ const IGNORE_DIRS = new Set([
   'test-results', 'allure-results', 'allure-report', '.scannerwork',
   '.next', '.nuxt', '.cache', '.turbo', '.parcel-cache', 'vendor',
   '__pycache__', '.venv', 'venv', 'env', '.idea', '.vscode', '.vs',
-  'bin', 'obj', 'target', '.gradle', '.ai-index', '.codebase-memory',
+  'bin', 'obj', 'target', '.gradle', '.ia-index', '.ai-index', '.codebase-memory',
   '.husky', '.github', 'tmp', 'temp', 'logs',
 ]);
 
@@ -94,7 +97,17 @@ async function confirm(question, autoYes) {
 }
 
 function loadRegistry() {
-  try { return JSON.parse(fs.readFileSync(REGISTRY, 'utf8')); } catch { return {}; }
+  try { return JSON.parse(fs.readFileSync(REGISTRY, 'utf8')); } catch { /* try legacy */ }
+  // one-time migration from the pre-1.4.0 home (~/.ai-index)
+  if (!process.env.IA_INDEX_HOME) {
+    try {
+      const legacy = JSON.parse(fs.readFileSync(path.join(LEGACY_HOME, 'registry.json'), 'utf8'));
+      saveRegistry(legacy);
+      fs.rmSync(LEGACY_HOME, { recursive: true, force: true });
+      return legacy;
+    } catch { /* no legacy registry either */ }
+  }
+  return {};
 }
 
 function saveRegistry(registry) {
@@ -368,6 +381,21 @@ function cmdIndex(root, opts = {}) {
     process.exit(1);
   }
 
+  // one-time migration: drop the pre-1.4.0 folder (its data is regenerated here)
+  const legacyDir = path.join(root, LEGACY_INDEX_DIR);
+  if (fs.existsSync(legacyDir)) fs.rmSync(legacyDir, { recursive: true, force: true });
+
+  // --if-changed: skip everything if no file is newer than the current index
+  // (this is what makes the pre-commit hook feel instant)
+  const existingIndex = path.join(root, INDEX_DIR, 'PROJECT-INDEX.md');
+  if (opts.ifChanged && fs.existsSync(existingIndex)) {
+    const indexMtime = fs.statSync(existingIndex).mtimeMs;
+    if (!files.some(f => f.mtimeMs > indexMtime)) {
+      if (!opts.quiet) console.log(`✅ Index already fresh — nothing to do. ⚡`);
+      return;
+    }
+  }
+
   files.sort((a, b) => a.relPath.localeCompare(b.relPath));
 
   // group by folder
@@ -427,7 +455,7 @@ function cmdIndex(root, opts = {}) {
   }
 
   const indexContent = lines.join('\n');
-  const outDir = path.join(root, '.ai-index');
+  const outDir = path.join(root, '.ia-index');
   fs.mkdirSync(outDir, { recursive: true });
   const outFile = path.join(outDir, 'PROJECT-INDEX.md');
   fs.writeFileSync(outFile, indexContent, 'utf8');
@@ -450,6 +478,11 @@ function cmdIndex(root, opts = {}) {
   // Multi-assistant integration (opt-out with --no-ai-config / --no-claude)
   const touched = opts.noClaude ? [] : updateAiConfigs(root);
 
+  if (opts.quiet) {
+    console.log(`⚡ ia-index: ${projectName} updated (${files.length} files, ${reduction}% tokens saved)`);
+    return;
+  }
+
   console.log('');
   console.log(c.green(c.bold(`🎉 Done! Project indexed: ${projectName} ✨`)));
   console.log('');
@@ -462,7 +495,7 @@ function cmdIndex(root, opts = {}) {
     console.log(`   🤖 AI configs ready: ${c.cyan(touched.join(' · '))} ✅`);
   }
   console.log('');
-  console.log(c.dim('   💡 Tip: your AI assistant now reads .ai-index/PROJECT-INDEX.md'));
+  console.log(c.dim('   💡 Tip: your AI assistant now reads .ia-index/PROJECT-INDEX.md'));
   console.log(c.dim('      instead of exploring the whole codebase.'));
   console.log(c.dim('   🔄 Code changed a lot? Just run: ia-index update'));
   console.log('');
@@ -485,7 +518,7 @@ function aiBlock() {
     BLOCK_START,
     '## 🧠 Project index (token saver)',
     '',
-    'This project has a compact index at `.ai-index/PROJECT-INDEX.md`.',
+    'This project has a compact index at `.ia-index/PROJECT-INDEX.md`.',
     '**Read it FIRST** before searching or reading files to explore: it contains',
     'the full structure, classes, methods and functions of the entire codebase.',
     'Only open source files when you need the exact body of a function.',
@@ -535,7 +568,7 @@ function stripAiConfigs(root) {
 
 function cmdStatus(root) {
   const projectName = path.basename(root);
-  const indexFile = path.join(root, '.ai-index', 'PROJECT-INDEX.md');
+  const indexFile = path.join(root, '.ia-index', 'PROJECT-INDEX.md');
   const registry = loadRegistry();
   const entry = registry[projectName];
 
@@ -596,6 +629,84 @@ function cmdList() {
   }
 }
 
+// ----------------------------------------------------------- command: hook
+
+const HOOK_START = '# >>> ia-index pre-commit hook >>>';
+const HOOK_END = '# <<< ia-index pre-commit hook <<<';
+
+function hookBlock() {
+  return [
+    HOOK_START,
+    '# Keeps the AI project index fresh on every commit.',
+    '# Ultra fast: skips instantly when nothing changed (--if-changed).',
+    'command -v ia-index >/dev/null 2>&1 && ia-index update --quiet --if-changed --no-ai-config || true',
+    HOOK_END,
+  ].join('\n');
+}
+
+function hookTarget(root) {
+  // Husky-managed repos keep hooks in .husky/ — respect that.
+  if (fs.existsSync(path.join(root, '.husky'))) {
+    return { file: path.join(root, '.husky', 'pre-commit'), kind: 'Husky' };
+  }
+  return { file: path.join(root, '.git', 'hooks', 'pre-commit'), kind: 'git' };
+}
+
+function cmdHookInstall(root) {
+  if (!fs.existsSync(path.join(root, '.git'))) {
+    console.error('❌ Not a git repository: ' + root);
+    process.exit(1);
+  }
+  const { file, kind } = hookTarget(root);
+
+  let content = '';
+  try { content = fs.readFileSync(file, 'utf8'); } catch { /* new hook file */ }
+
+  const already = content.includes(HOOK_START);
+  if (already) {
+    content = content.replace(new RegExp(HOOK_START + '[\\s\\S]*?' + HOOK_END), hookBlock());
+  } else if (content) {
+    content = content.trimEnd() + '\n\n' + hookBlock() + '\n';
+  } else {
+    content = '#!/bin/sh\n\n' + hookBlock() + '\n';
+  }
+
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, content, 'utf8');
+  try { fs.chmodSync(file, 0o755); } catch { /* windows */ }
+
+  console.log('');
+  console.log(c.green(c.bold(`🪝 Pre-commit hook ${already ? 'updated' : 'installed'}! ✨`)));
+  console.log('');
+  console.log(`   📄 Hook:    ${c.cyan(file)}  ${c.dim(`(${kind})`)}`);
+  console.log(`   📂 Project: ${path.basename(root)}`);
+  console.log('');
+  console.log(c.dim('   💡 From now on, every `git commit` refreshes the index automatically.'));
+  console.log(c.dim('      If nothing changed, it skips in milliseconds — commits stay fast ⚡'));
+  console.log(c.dim('   🗑️  Uninstall anytime with: ia-index hook remove'));
+  console.log('');
+}
+
+function cmdHookRemove(root) {
+  const { file } = hookTarget(root);
+  let content = '';
+  try { content = fs.readFileSync(file, 'utf8'); } catch {
+    console.log('📭 No pre-commit hook found — nothing to remove. ✨');
+    return;
+  }
+  if (!content.includes(HOOK_START)) {
+    console.log('📭 The ia-index hook is not installed here — nothing to remove. ✨');
+    return;
+  }
+  content = content.replace(new RegExp('\\n*' + HOOK_START + '[\\s\\S]*?' + HOOK_END + '\\n*'), '\n').trim();
+  if (content && content !== '#!/bin/sh') {
+    fs.writeFileSync(file, content + '\n', 'utf8');
+  } else {
+    fs.unlinkSync(file); // the hook only contained our block
+  }
+  console.log(c.green('✅ Pre-commit hook removed. Your commits are hook-free again! 👋'));
+}
+
 // ---------------------------------------------------------- command: stats
 
 function cmdStats() {
@@ -640,7 +751,7 @@ function cmdStats() {
 
 function cmdExport(root, opts = {}) {
   const projectName = path.basename(root);
-  const indexFile = path.join(root, '.ai-index', 'PROJECT-INDEX.md');
+  const indexFile = path.join(root, '.ia-index', 'PROJECT-INDEX.md');
 
   if (!fs.existsSync(indexFile)) {
     console.log(`📭 "${projectName}" is not indexed yet — indexing it first ⚡`);
@@ -663,7 +774,7 @@ function cmdExport(root, opts = {}) {
     index: fs.readFileSync(indexFile, 'utf8'),
   };
 
-  const outFile = path.resolve(opts.out || `${projectName}.ai-index.json`);
+  const outFile = path.resolve(opts.out || `${projectName}.ia-index.json`);
   fs.writeFileSync(outFile, JSON.stringify(payload, null, 2), 'utf8');
 
   console.log('');
@@ -683,7 +794,7 @@ function cmdExport(root, opts = {}) {
 function cmdImport(file, targetRoot, opts = {}) {
   // --- validations (security first!) ---
   if (!file) {
-    console.error(`❌ Missing file. Usage: ${c.green('ia-index import <file.ai-index.json> [target-folder]')}`);
+    console.error(`❌ Missing file. Usage: ${c.green('ia-index import <file.ia-index.json> [target-folder]')}`);
     process.exit(1);
   }
   const absFile = path.resolve(file);
@@ -714,7 +825,7 @@ function cmdImport(file, targetRoot, opts = {}) {
 
   // --- write the index into the target project ---
   const projectName = path.basename(targetRoot);
-  const outDir = path.join(targetRoot, '.ai-index');
+  const outDir = path.join(targetRoot, '.ia-index');
   fs.mkdirSync(outDir, { recursive: true });
   const outFile = path.join(outDir, 'PROJECT-INDEX.md');
   fs.writeFileSync(outFile, payload.index, 'utf8');
@@ -754,7 +865,7 @@ function cmdImport(file, targetRoot, opts = {}) {
 
 async function cmdRemove(root, opts = {}) {
   const projectName = path.basename(root);
-  const indexDir = path.join(root, '.ai-index');
+  const indexDir = path.join(root, '.ia-index');
   const registry = loadRegistry();
   const hasIndex = fs.existsSync(indexDir);
   const hasEntry = !!registry[projectName];
@@ -764,7 +875,7 @@ async function cmdRemove(root, opts = {}) {
     return;
   }
 
-  const proceed = await confirm(`🗑️  Delete the index of ${c.cyan(`"${projectName}"`)} (folder .ai-index/ + registry entry + CLAUDE.md block)?`, opts.yes);
+  const proceed = await confirm(`🗑️  Delete the index of ${c.cyan(`"${projectName}"`)} (folder .ia-index/ + registry entry + CLAUDE.md block)?`, opts.yes);
   if (!proceed) { console.log(`👌 No worries — nothing was touched. ${c.dim('(Use --yes to skip this prompt.)')}`); return; }
 
   if (hasIndex) fs.rmSync(indexDir, { recursive: true, force: true });
@@ -791,8 +902,8 @@ async function cmdClean(opts = {}) {
   console.log('');
   for (const name of names) console.log(`   📦 ${c.cyan(name)}  ${c.dim(`(${registry[name].path})`)}`);
   console.log('');
-  if (opts.all) console.log(c.red('   ⚠️  --all: each project\'s .ai-index/ folder and CLAUDE.md block will be DELETED too.'));
-  else console.log(c.dim('   💡 Each project\'s .ai-index/ folder stays on disk. Add --all to delete those too.'));
+  if (opts.all) console.log(c.red('   ⚠️  --all: each project\'s .ia-index/ folder and CLAUDE.md block will be DELETED too.'));
+  else console.log(c.dim('   💡 Each project\'s .ia-index/ folder stays on disk. Add --all to delete those too.'));
   console.log('');
 
   const proceed = await confirm('Proceed?', opts.yes);
@@ -802,10 +913,10 @@ async function cmdClean(opts = {}) {
     for (const name of names) {
       const projectPath = registry[name].path;
       try {
-        fs.rmSync(path.join(projectPath, '.ai-index'), { recursive: true, force: true });
+        fs.rmSync(path.join(projectPath, '.ia-index'), { recursive: true, force: true });
         stripAiConfigs(projectPath);
-        console.log(`   🗑️  ${name}: .ai-index/ deleted ✅`);
-      } catch { console.log(c.yellow(`   ⚠️  ${name}: could not delete .ai-index/`)); }
+        console.log(`   🗑️  ${name}: .ia-index/ deleted ✅`);
+      } catch { console.log(c.yellow(`   ⚠️  ${name}: could not delete .ia-index/`)); }
     }
   }
 
@@ -818,7 +929,7 @@ async function cmdClean(opts = {}) {
 async function menu() {
   const cwd = process.cwd();
   const projectName = path.basename(cwd);
-  const indexed = fs.existsSync(path.join(cwd, '.ai-index', 'PROJECT-INDEX.md'));
+  const indexed = fs.existsSync(path.join(cwd, '.ia-index', 'PROJECT-INDEX.md'));
 
   console.log('');
   console.log(c.bold(c.cyan(`⚡ IA Project Indexer v${VERSION}`)) + c.dim(' — make your AI assistant cheaper and faster 💰'));
@@ -833,12 +944,13 @@ async function menu() {
   console.log(`   ${c.cyan('4')}) 📈 Show my global token savings`);
   console.log(`   ${c.cyan('5')}) 📤 Export this project's index  ${c.dim('(share it with another machine)')}`);
   console.log(`   ${c.cyan('6')}) 📥 Import an exported index`);
-  console.log(`   ${c.cyan('7')}) 🗑️  Remove this project's index`);
-  console.log(`   ${c.cyan('8')}) 🧹 Clean global memory`);
-  console.log(`   ${c.cyan('9')}) 👋 Exit`);
+  console.log(`   ${c.cyan('7')}) 🪝 Auto-update on every git commit  ${c.dim('(pre-commit hook)')}`);
+  console.log(`   ${c.cyan('8')}) 🗑️  Remove this project's index`);
+  console.log(`   ${c.cyan('9')}) 🧹 Clean global memory`);
+  console.log(`   ${c.cyan('0')}) 👋 Exit`);
   console.log('');
 
-  const choice = await ask(c.bold('Choose an option [1-9]: '));
+  const choice = await ask(c.bold('Choose an option [0-9]: '));
   console.log('');
 
   switch (choice) {
@@ -848,14 +960,15 @@ async function menu() {
     case '4': cmdStats(); break;
     case '5': cmdExport(cwd); break;
     case '6': {
-      const file = await ask('📥 Path to the .ai-index.json file: ');
+      const file = await ask('📥 Path to the .ia-index.json file: ');
       if (file) cmdImport(file, cwd);
       else console.log('👌 No file given — nothing was imported.');
       break;
     }
-    case '7': await cmdRemove(cwd); break;
-    case '8': await cmdClean(); break;
-    case '9': default: console.log('👋 See you later! Happy coding! ✨'); break;
+    case '7': cmdHookInstall(cwd); break;
+    case '8': await cmdRemove(cwd); break;
+    case '9': await cmdClean(); break;
+    case '0': default: console.log('👋 See you later! Happy coding! ✨'); break;
   }
 }
 
@@ -874,6 +987,8 @@ function help() {
   ia-index stats                 📈 Global token-savings dashboard
   ia-index export [path]         📤 Export the index to a portable file
   ia-index import <file> [path]  📥 Load an exported index on this machine
+  ia-index hook [install]        🪝 Auto-update the index on every git commit
+  ia-index hook remove           🪝 Uninstall the pre-commit hook
   ia-index remove [path]         🗑️  Delete a project's index (asks first!)
   ia-index clean                 🧹 Clear the global memory (asks first!)
   ia-index help                  💬 This help
@@ -881,12 +996,14 @@ function help() {
 🚩 Flags:
   --out <file>    With export: custom output file
   --no-ai-config  Don't touch AI config files (CLAUDE.md, AGENTS.md…)
+  --quiet, -q     One-line output (great for hooks and CI)
+  --if-changed    Skip instantly when no file changed since last index
   --yes, -y       Skip confirmation prompts (for remove / clean)
-  --all           With clean: also delete every project's .ai-index/ folder
+  --all           With clean: also delete every project's .ia-index/ folder
   --version, -v   Show version
 
 💡 How it works:
-   Generates .ai-index/PROJECT-INDEX.md — a compact summary of your
+   Generates .ia-index/PROJECT-INDEX.md — a compact summary of your
    project's structure, classes, methods and functions. Your LLM reads
    it instead of exploring the codebase → up to 99% fewer tokens! 🚀
 
@@ -904,7 +1021,7 @@ function help() {
 
 // ------------------------------------------------------------------- main
 
-const COMMANDS = new Set(['index', 'update', 'status', 'list', 'stats', 'export', 'import', 'remove', 'delete', 'rm', 'clean', 'help']);
+const COMMANDS = new Set(['index', 'update', 'status', 'list', 'stats', 'export', 'import', 'hook', 'remove', 'delete', 'rm', 'clean', 'help']);
 
 async function main() {
   const raw = process.argv.slice(2);
@@ -923,6 +1040,8 @@ async function main() {
     noClaude: flags.has('--no-ai-config') || flags.has('--no-claude'), // --no-claude kept as alias
     yes: flags.has('--yes') || flags.has('-y'),
     all: flags.has('--all'),
+    quiet: flags.has('--quiet') || flags.has('-q'),
+    ifChanged: flags.has('--if-changed'),
     out: outFile,
   };
 
@@ -948,6 +1067,18 @@ async function main() {
       process.exit(1);
     }
     cmdImport(positional[1], target, opts);
+    return;
+  }
+  if (cmd === 'hook') {
+    const HOOK_ACTIONS = new Set(['install', 'remove', 'uninstall']);
+    const action = HOOK_ACTIONS.has(positional[1]) ? positional[1] : 'install';
+    const target = path.resolve(HOOK_ACTIONS.has(positional[1]) ? (positional[2] || '.') : (positional[1] || '.'));
+    if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
+      console.error('❌ Invalid path: ' + target);
+      process.exit(1);
+    }
+    if (action === 'install') cmdHookInstall(target);
+    else cmdHookRemove(target);
     return;
   }
 
