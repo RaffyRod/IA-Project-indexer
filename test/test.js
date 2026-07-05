@@ -534,6 +534,32 @@ ok('`hook remove` deletes a hook file that only contained our block', () => {
   assert.ok(!fs.existsSync(path.join(fixture, '.git', 'hooks', 'pre-commit')));
 });
 
+// ---- auto-gitignore (fixture has a .git dir at this point) ----
+
+ok('index auto-adds .ia-index/ and *.ia-index.json to .gitignore in git repos', () => {
+  cli(['index', fixture, '--no-claude']);
+  const gi = fs.readFileSync(path.join(fixture, '.gitignore'), 'utf8');
+  assert.ok(gi.includes('.ia-index/'));
+  assert.ok(gi.includes('*.ia-index.json'));
+  assert.ok(gi.includes('secret-folder/')); // user content preserved
+});
+
+ok('re-index never duplicates .gitignore entries', () => {
+  cli(['index', fixture, '--no-claude']);
+  cli(['index', fixture, '--no-claude']);
+  const gi = fs.readFileSync(path.join(fixture, '.gitignore'), 'utf8');
+  assert.strictEqual((gi.match(/^\.ia-index\/$/gm) || []).length, 1);
+  assert.strictEqual((gi.match(/^\*\.ia-index\.json$/gm) || []).length, 1);
+});
+
+ok('gitignore is NOT touched outside a git repo', () => {
+  const noGit = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-index-nogit-'));
+  fs.writeFileSync(path.join(noGit, 'app.js'), 'export function x() {}\n');
+  cli(['index', noGit, '--no-claude']);
+  assert.ok(!fs.existsSync(path.join(noGit, '.gitignore')));
+  fs.rmSync(noGit, { recursive: true, force: true });
+});
+
 // ---- stats ----
 
 ok('`stats` shows the global savings dashboard', () => {

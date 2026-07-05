@@ -8,7 +8,7 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node >= 16](https://img.shields.io/badge/node-%3E%3D16-brightgreen.svg)](https://nodejs.org)
 [![dependencies: 0](https://img.shields.io/badge/dependencies-0-success.svg)](package.json)
-[![tests: 59](https://img.shields.io/badge/tests-59%20passing-success.svg)](test/test.js)
+[![tests: 62](https://img.shields.io/badge/tests-62%20passing-success.svg)](test/test.js)
 
 **Works with Claude · ChatGPT · Gemini · Cursor · Copilot · any AI assistant**
 
@@ -56,6 +56,23 @@ ia-index index        # done. < 1 second ⚡
 That's it. Claude Code, Codex and friends now read the index automatically.
 Prefer menus? Just run `ia-index` with no arguments. 🧭
 
+## 📁 It's per-project — index ALL your projects
+
+Each project gets **its own independent index**, and you can index as many as
+you want (`ia-index list` shows them all). And here's the key:
+**the project does NOT need to be "AI-ready"** —
+
+- 🕰️ **Legacy codebases** with zero AI setup? Index them — that's where the
+  savings are biggest, because the AI knows nothing about them.
+- 🗣️ **Any language, any stack** — signature extraction for 8 languages, and
+  every other file is still mapped in the structure.
+- 🧳 **Projects you just cloned** — index first, ask questions second. Your
+  assistant starts every session already knowing the whole layout.
+- 🏠 **100% local by design** — the index lives inside each project, the
+  registry lives in your home folder, and **`.ia-index/` + `*.ia-index.json`
+  are added to the project's `.gitignore` automatically**. Nothing is ever
+  committed or uploaded by accident.
+
 ## 💬 What can the AI answer instantly?
 
 Real Q&A on a real indexed project — every answer comes from the ~850-token
@@ -73,21 +90,52 @@ For *"how does X work inside?"* the AI opens **exactly one file** (the index
 tells it which) instead of exploring — still a fraction of the cost. And for
 plain-text searches it falls back to grep, **never worse** than before.
 
-## 🪝 Set-and-forget: auto-update on every commit
+## 🪝 Keep the index always fresh: pre-commit setup
+
+The index describes your code **at the moment you ran `ia-index index`**. So
+the one thing to configure is: *refresh it when the code changes*. One command
+does it, per project:
 
 ```bash
+cd your-project
 ia-index hook
 ```
 
-Installs a **pre-commit hook** (native `.git/hooks` or **Husky** — detected
-automatically) that refreshes the index on every commit:
+```
+🪝 Pre-commit hook installed! ✨
 
-- ⚡ **Instant when nothing changed** — `--if-changed` skips in milliseconds
-- 🤫 **One quiet line** when it updates — your commit output stays clean
-- 🛡️ **Never blocks a commit** — if `ia-index` is missing, the hook is a no-op
-- 🗑️ Uninstall anytime: `ia-index hook remove`
+   📄 Hook:    .husky/pre-commit  (Husky)
+   📂 Project: your-project
+```
 
-Your AI assistant's knowledge is now always fresh, with zero effort. 🧠
+**What it installs and how it behaves:**
+
+- 🔍 Detects your setup: appends to `.husky/pre-commit` if you use **Husky**
+  (your existing lines like `npx lint-staged` are preserved), otherwise uses
+  the native `.git/hooks/pre-commit`
+- ⚡ **Instant when nothing changed** — the hook runs with `--if-changed`, so
+  it skips in milliseconds and your commits never feel slower
+- 🤫 **One quiet line** when it does update — commit output stays clean
+- 🛡️ **Never blocks a commit** — if `ia-index` isn't installed on a teammate's
+  machine, the hook is a silent no-op (safe to commit the Husky file)
+- 🗑️ Uninstall anytime: `ia-index hook remove` (only our block is removed)
+
+<details>
+<summary><b>Prefer to configure it manually?</b> (custom hook managers, CI, etc.)</summary>
+
+Add this line wherever your workflow runs before/after changes land:
+
+```sh
+command -v ia-index >/dev/null 2>&1 && ia-index update --quiet --if-changed --no-ai-config || true
+```
+
+It's the exact line the hook installs — copy it into lefthook, pre-push,
+a task runner or a CI job.
+
+</details>
+
+Result: your AI assistant's knowledge is **always in sync with your latest
+commit**, with zero effort. 🧠
 
 ## 🎮 Commands
 
@@ -166,16 +214,20 @@ index wins.
 
 **Listed in structure:** JSON, YAML, Markdown, HTML, CSS, SQL, shell scripts.
 
-## 📍 Where things live
+## 📍 Where things live (all local)
 
-| What | Where |
-|---|---|
-| The index | `your-project/.ia-index/PROJECT-INDEX.md` |
-| Global registry | `~/.ia-index/registry.json` |
-| Exports | `<project>.ia-index.json` |
+| What | Where | Committed? |
+|---|---|---|
+| The index | `your-project/.ia-index/PROJECT-INDEX.md` | 🙈 Auto-gitignored |
+| Export files | `<project>.ia-index.json` | 🙈 Auto-gitignored |
+| Global registry | `~/.ia-index/registry.json` | Outside the repo |
+| AI configs | `CLAUDE.md`, `AGENTS.md` | ✅ Yours to commit — they help the whole team |
 
-**Git tip:** add `.ia-index/` to `.gitignore` (regenerates in a second) — or
-commit it so the whole team shares it.
+`ia-index` adds `.ia-index/` and `*.ia-index.json` to your `.gitignore`
+automatically the first time you index a git repo (never duplicates, never
+touches your existing entries). The index is a **local artifact**: every dev
+regenerates it in under a second — or keeps it fresh automatically with
+`ia-index hook`.
 
 ## 🔒 Security & privacy
 
@@ -187,7 +239,7 @@ commit it so the whole team shares it.
 ## 🧪 Tests
 
 ```bash
-npm test   # 59 assertions, zero test dependencies
+npm test   # 62 assertions, zero test dependencies
 ```
 
 Covers signature extraction in all 8 languages, folder exclusion, `.gitignore`

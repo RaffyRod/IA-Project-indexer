@@ -128,6 +128,26 @@ function saveRegistry(registry) {
   fs.writeFileSync(REGISTRY, JSON.stringify(registry, null, 2), 'utf8');
 }
 
+// This is a local-first tool: the generated index and export files should
+// never be committed by accident. In git repos we add them to .gitignore
+// automatically (idempotent — never duplicates entries).
+function ensureGitignore(root) {
+  if (!fs.existsSync(path.join(root, '.git'))) return false; // not a git repo
+  const gi = path.join(root, '.gitignore');
+  let content = '';
+  try { content = fs.readFileSync(gi, 'utf8'); } catch { /* will create it */ }
+
+  const existing = new Set(content.split(/\r?\n/).map(l => l.trim().replace(/\/+$/, '')));
+  const needed = ['.ia-index/', '*.ia-index.json'].filter(n => !existing.has(n.replace(/\/+$/, '')));
+  if (!needed.length) return false;
+
+  const block = (content ? content.trimEnd() + '\n\n' : '') +
+    '# IA Project Indexer — local index, regenerate anytime with `ia-index`\n' +
+    needed.join('\n') + '\n';
+  fs.writeFileSync(gi, block, 'utf8');
+  return true;
+}
+
 function loadGitignore(root) {
   const patterns = [];
   try {
@@ -502,6 +522,7 @@ function cmdIndex(root, opts = {}) {
 
   // Multi-assistant integration (opt-out with --no-ai-config / --no-claude)
   const touched = opts.noClaude ? [] : updateAiConfigs(root);
+  const gitignoreUpdated = ensureGitignore(root);
 
   if (opts.quiet) {
     console.log(`⚡ ia-index: ${projectName} updated (${files.length} files, ${reduction}% tokens saved)`);
@@ -518,6 +539,9 @@ function cmdIndex(root, opts = {}) {
   console.log(`   💰 Reduction: ${c.green(c.bold(`${reduction}% fewer tokens`))} 🚀`);
   if (touched.length) {
     console.log(`   🤖 AI configs ready: ${c.cyan(touched.join(' · '))} ✅`);
+  }
+  if (gitignoreUpdated) {
+    console.log(`   🙈 .gitignore updated: ${c.cyan('.ia-index/ · *.ia-index.json')} ${c.dim('(local-only, never committed)')}`);
   }
   console.log('');
   console.log(c.dim('   💡 Tip: your AI assistant now reads .ia-index/PROJECT-INDEX.md'));
@@ -879,6 +903,7 @@ function cmdImport(file, targetRoot, opts = {}) {
   saveRegistry(registry);
 
   const touched = opts.noClaude ? [] : updateAiConfigs(targetRoot);
+  ensureGitignore(targetRoot);
 
   console.log('');
   console.log(c.green(c.bold(`📥 Import complete! Welcome aboard, "${registry[targetRoot].imported.from}" ✨`)));
