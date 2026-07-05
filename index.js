@@ -6,12 +6,19 @@
  * tokens in searches and file reads), it reads ONE compact file:
  * .ai-index/PROJECT-INDEX.md
  *
- * Usage:
- *   ai-index               Index the current directory
- *   ai-index <path>        Index the given path
- *   ai-index list          List indexed projects
- *   ai-index --no-claude   Index without touching CLAUDE.md
- *   ai-index --help        Help
+ * Commands:
+ *   ai-index                Interactive menu
+ *   ai-index index [path]   Create / update the index
+ *   ai-index update [path]  Same as index
+ *   ai-index status [path]  Is the project indexed? Is it up to date?
+ *   ai-index list           List all indexed projects
+ *   ai-index remove [path]  Delete a project's index
+ *   ai-index clean          Clear the global memory (registry)
+ *
+ * Flags:
+ *   --no-claude   Don't touch CLAUDE.md when indexing
+ *   --yes, -y     Skip confirmation prompts
+ *   --all         With clean: also delete every project's .ai-index folder
  *
  * Zero dependencies. Node >= 16. Windows / macOS / Linux.
  */
@@ -21,10 +28,20 @@
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const readline = require('readline');
 
 const VERSION = require('./package.json').version;
-const HOME_DIR = path.join(os.homedir(), '.ai-index');
+// AI_INDEX_HOME override keeps tests fully isolated from the real registry.
+const HOME_DIR = process.env.AI_INDEX_HOME || path.join(os.homedir(), '.ai-index');
 const REGISTRY = path.join(HOME_DIR, 'registry.json');
+
+// ANSI colors — auto-disabled on non-TTY output (pipes, CI) and with NO_COLOR.
+const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
+const paint = code => s => (useColor ? `\x1b[${code}m${s}\x1b[0m` : s);
+const c = {
+  green: paint('32'), yellow: paint('33'), cyan: paint('36'),
+  magenta: paint('35'), red: paint('31'), bold: paint('1'), dim: paint('2'),
+};
 
 // Folders that are never indexed (the #1 cause of hung indexers)
 const IGNORE_DIRS = new Set([
@@ -55,6 +72,27 @@ const MAX_FILE_SIZE = 512 * 1024; // skip analyzing files > 512KB
 
 function kb(bytes) { return (bytes / 1024).toFixed(1) + ' KB'; }
 function tokens(bytes) { return Math.round(bytes / 4); } // ~4 chars per token
+
+function ask(question) {
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  return new Promise(resolve => rl.question(question, answer => { rl.close(); resolve(answer.trim()); }));
+}
+
+async function confirm(question, autoYes) {
+  if (autoYes) return true;
+  if (!process.stdin.isTTY) return false;
+  const answer = await ask(question + ' (y/N) ');
+  return /^y(es)?$/i.test(answer);
+}
+
+function loadRegistry() {
+  try { return JSON.parse(fs.readFileSync(REGISTRY, 'utf8')); } catch { return {}; }
+}
+
+function saveRegistry(registry) {
+  fs.mkdirSync(HOME_DIR, { recursive: true });
+  fs.writeFileSync(REGISTRY, JSON.stringify(registry, null, 2), 'utf8');
+}
 
 function loadGitignore(root) {
   const patterns = [];
@@ -192,10 +230,10 @@ function walk(root, gitignore) {
         if (isGitignored(relPath, e.name, gitignore)) continue;
         const ext = path.extname(e.name).toLowerCase();
         if (!CODE_EXTS.has(ext) && !LIST_EXTS.has(ext)) continue;
-        let size = 0;
-        try { size = fs.statSync(path.join(dir, e.name)).size; } catch { continue; }
-        totalBytes += size;
-        files.push({ relPath, abs: path.join(dir, e.name), ext, size });
+        let stat;
+        try { stat = fs.statSync(path.join(dir, e.name)); } catch { continue; }
+        totalBytes += stat.size;
+        files.push({ relPath, abs: path.join(dir, e.name), ext, size: stat.size, mtimeMs: stat.mtimeMs });
       }
     }
   }
@@ -204,9 +242,9 @@ function walk(root, gitignore) {
   return { files, totalBytes };
 }
 
-// ------------------------------------------------------------ index builder
+// ---------------------------------------------------------- command: index
 
-function buildIndex(root, opts = {}) {
+function cmdIndex(root, opts = {}) {
   const projectName = path.basename(root);
   const gitignore = loadGitignore(root);
   const { files, totalBytes } = walk(root, gitignore);
@@ -283,10 +321,7 @@ function buildIndex(root, opts = {}) {
   const indexBytes = Buffer.byteLength(indexContent, 'utf8');
   const reduction = Math.max(0, Math.round((1 - indexBytes / totalBytes) * 100));
 
-  // global registry
-  fs.mkdirSync(HOME_DIR, { recursive: true });
-  let registry = {};
-  try { registry = JSON.parse(fs.readFileSync(REGISTRY, 'utf8')); } catch { /* new */ }
+  const registry = loadRegistry();
   registry[projectName] = {
     path: root,
     indexedAt: new Date().toISOString(),
@@ -295,116 +330,307 @@ function buildIndex(root, opts = {}) {
     indexKB: +(indexBytes / 1024).toFixed(1),
     reduction: reduction + '%',
   };
-  fs.writeFileSync(REGISTRY, JSON.stringify(registry, null, 2), 'utf8');
+  saveRegistry(registry);
 
   // CLAUDE.md integration (opt-out with --no-claude)
   if (!opts.noClaude) updateClaudeMd(root);
 
   console.log('');
-  console.log(`✅ Project indexed: ${projectName}`);
+  console.log(c.green(c.bold(`🎉 Done! Project indexed: ${projectName} ✨`)));
   console.log('');
-  console.log(`   📄 Index:     ${outFile}`);
-  console.log(`   📦 Files:     ${files.length}`);
-  console.log(`   📊 Source:    ${kb(totalBytes)}  (~${tokens(totalBytes).toLocaleString()} tokens)`);
-  console.log(`   🗜️  Index:     ${kb(indexBytes)}  (~${tokens(indexBytes).toLocaleString()} tokens)`);
-  console.log(`   💰 Reduction: ${reduction}% fewer tokens`);
+  console.log(`   📄 Index:     ${c.cyan(outFile)}`);
+  console.log(`   📦 Files:     ${files.length} scanned`);
+  console.log(`   📊 Source:    ${kb(totalBytes)}  ${c.dim(`(~${tokens(totalBytes).toLocaleString()} tokens)`)}`);
+  console.log(`   🗜️  Index:     ${kb(indexBytes)}  ${c.dim(`(~${tokens(indexBytes).toLocaleString()} tokens)`)}`);
+  console.log(`   💰 Reduction: ${c.green(c.bold(`${reduction}% fewer tokens`))} 🚀`);
   console.log('');
-  console.log('   Next: your LLM reads .ai-index/PROJECT-INDEX.md instead of');
-  console.log('   exploring the whole codebase.' + (opts.noClaude ? '' : ' (CLAUDE.md already configured)'));
+  console.log(c.dim('   💡 Tip: your AI assistant now reads .ai-index/PROJECT-INDEX.md'));
+  console.log(c.dim('      instead of exploring the whole codebase.' + (opts.noClaude ? '' : ' CLAUDE.md is ready ✅')));
+  console.log(c.dim('   🔄 Code changed a lot? Just run: ai-index update'));
   console.log('');
 }
 
+const CLAUDE_START = '<!-- ai-index:start -->';
+const CLAUDE_END = '<!-- ai-index:end -->';
+
 function updateClaudeMd(root) {
   const claudeMd = path.join(root, 'CLAUDE.md');
-  const START = '<!-- ai-index:start -->';
-  const END = '<!-- ai-index:end -->';
   const block = [
-    START,
+    CLAUDE_START,
     '## 🧠 Project index (token saver)',
     '',
     'This project has a compact index at `.ai-index/PROJECT-INDEX.md`.',
     '**Read it FIRST** before using Glob/Grep/Read to explore: it contains the',
     'full structure, classes, methods and functions of the entire codebase.',
     'Only open source files when you need the exact body of a function.',
-    'If the code changed significantly, regenerate with: `ai-index`',
-    END,
+    'If the code changed significantly, regenerate with: `ai-index update`',
+    CLAUDE_END,
   ].join('\n');
 
   let content = '';
   try { content = fs.readFileSync(claudeMd, 'utf8'); } catch { /* new file */ }
 
-  if (content.includes(START)) {
-    content = content.replace(new RegExp(START + '[\\s\\S]*?' + END), block);
+  if (content.includes(CLAUDE_START)) {
+    content = content.replace(new RegExp(CLAUDE_START + '[\\s\\S]*?' + CLAUDE_END), block);
   } else {
     content = content ? content.trimEnd() + '\n\n' + block + '\n' : block + '\n';
   }
   fs.writeFileSync(claudeMd, content, 'utf8');
 }
 
-// ---------------------------------------------------------------- commands
+function stripClaudeMd(root) {
+  const claudeMd = path.join(root, 'CLAUDE.md');
+  let content = '';
+  try { content = fs.readFileSync(claudeMd, 'utf8'); } catch { return; }
+  if (!content.includes(CLAUDE_START)) return;
 
-function listProjects() {
-  let registry = {};
-  try { registry = JSON.parse(fs.readFileSync(REGISTRY, 'utf8')); } catch { /* empty */ }
+  content = content.replace(new RegExp('\\n*' + CLAUDE_START + '[\\s\\S]*?' + CLAUDE_END + '\\n*'), '\n').trim();
+  if (content) {
+    fs.writeFileSync(claudeMd, content + '\n', 'utf8');
+  } else {
+    fs.unlinkSync(claudeMd); // the file only contained our block
+  }
+}
+
+// --------------------------------------------------------- command: status
+
+function cmdStatus(root) {
+  const projectName = path.basename(root);
+  const indexFile = path.join(root, '.ai-index', 'PROJECT-INDEX.md');
+  const registry = loadRegistry();
+  const entry = registry[projectName];
+
+  console.log('');
+  console.log(c.bold(`📊 Status — ${c.cyan(projectName)}`));
+  console.log('');
+
+  if (!fs.existsSync(indexFile)) {
+    console.log('   📭 This project is not indexed yet — but that\'s easy to fix!');
+    console.log(`   👉 Just run: ${c.green('ai-index index')}  (takes less than a second ⚡)`);
+    console.log('');
+    return;
+  }
+
+  const indexMtime = fs.statSync(indexFile).mtimeMs;
+  const { files } = walk(root, loadGitignore(root));
+  const changed = files.filter(f => f.mtimeMs > indexMtime).length;
+
+  if (entry) {
+    console.log(`   🕒 Indexed:   ${entry.indexedAt.slice(0, 16).replace('T', ' ')}`);
+    console.log(`   📦 Files:     ${entry.files} · source ${entry.sourceKB} KB → index ${entry.indexKB} KB ${c.green(`(${entry.reduction} fewer tokens)`)}`);
+  } else {
+    console.log(`   📄 Index:     ${c.cyan(indexFile)}`);
+  }
+
+  if (changed === 0) {
+    console.log(`   💚 State:     ${c.green('✅ Up to date — your AI has fresh knowledge!')}`);
+  } else {
+    console.log(`   🟡 State:     ${c.yellow(`⚠️  Outdated — ${changed} file(s) changed since last index`)}`);
+    console.log(`   👉 Refresh it with: ${c.green('ai-index update')}  ⚡`);
+  }
+  console.log('');
+}
+
+// ----------------------------------------------------------- command: list
+
+function cmdList() {
+  const registry = loadRegistry();
   const names = Object.keys(registry);
   if (!names.length) {
-    console.log('📭 No projects indexed yet. Run `ai-index` inside a project.');
+    console.log('');
+    console.log('📭 No projects indexed yet — let\'s change that!');
+    console.log(`   👉 Run ${c.green('ai-index index')} inside any project to get started 🚀`);
+    console.log('');
     return;
   }
   console.log('');
-  console.log('📦 Indexed projects:');
+  console.log(c.bold(`📦 Your indexed projects (${names.length}):`));
   console.log('');
   for (const name of names) {
     const p = registry[name];
-    console.log(`   ${name}`);
-    console.log(`     path:     ${p.path}`);
-    console.log(`     indexed:  ${p.indexedAt.slice(0, 16).replace('T', ' ')}`);
-    console.log(`     files:    ${p.files} · source ${p.sourceKB} KB → index ${p.indexKB} KB (${p.reduction} fewer tokens)`);
+    console.log(`   ⚡ ${c.cyan(c.bold(name))}`);
+    console.log(`      📍 Path:     ${p.path}`);
+    console.log(`      🕒 Indexed:  ${p.indexedAt.slice(0, 16).replace('T', ' ')}`);
+    console.log(`      📊 Files:    ${p.files} · source ${p.sourceKB} KB → index ${p.indexKB} KB ${c.green(`(${p.reduction} fewer tokens 💰)`)}`);
     console.log('');
   }
 }
 
+// --------------------------------------------------------- command: remove
+
+async function cmdRemove(root, opts = {}) {
+  const projectName = path.basename(root);
+  const indexDir = path.join(root, '.ai-index');
+  const registry = loadRegistry();
+  const hasIndex = fs.existsSync(indexDir);
+  const hasEntry = !!registry[projectName];
+
+  if (!hasIndex && !hasEntry) {
+    console.log(`📭 Nothing to remove — "${projectName}" is not indexed. All clean! ✨`);
+    return;
+  }
+
+  const proceed = await confirm(`🗑️  Delete the index of ${c.cyan(`"${projectName}"`)} (folder .ai-index/ + registry entry + CLAUDE.md block)?`, opts.yes);
+  if (!proceed) { console.log(`👌 No worries — nothing was touched. ${c.dim('(Use --yes to skip this prompt.)')}`); return; }
+
+  if (hasIndex) fs.rmSync(indexDir, { recursive: true, force: true });
+  if (hasEntry) { delete registry[projectName]; saveRegistry(registry); }
+  stripClaudeMd(root);
+
+  console.log(c.green(`✅ Index of "${projectName}" removed. Bye bye index! 👋`));
+  console.log(c.dim(`   💡 You can re-index anytime with: ai-index index`));
+}
+
+// ---------------------------------------------------------- command: clean
+
+async function cmdClean(opts = {}) {
+  const registry = loadRegistry();
+  const names = Object.keys(registry);
+
+  if (!names.length && !fs.existsSync(HOME_DIR)) {
+    console.log('📭 Global memory is already empty — nothing to clean! ✨');
+    return;
+  }
+
+  console.log('');
+  console.log(c.yellow(c.bold('🧹 Heads up! This will clear the global memory (registry of indexed projects):')));
+  console.log('');
+  for (const name of names) console.log(`   📦 ${c.cyan(name)}  ${c.dim(`(${registry[name].path})`)}`);
+  console.log('');
+  if (opts.all) console.log(c.red('   ⚠️  --all: each project\'s .ai-index/ folder and CLAUDE.md block will be DELETED too.'));
+  else console.log(c.dim('   💡 Each project\'s .ai-index/ folder stays on disk. Add --all to delete those too.'));
+  console.log('');
+
+  const proceed = await confirm('Proceed?', opts.yes);
+  if (!proceed) { console.log(`👌 No worries — nothing was touched. ${c.dim('(Use --yes to skip this prompt.)')}`); return; }
+
+  if (opts.all) {
+    for (const name of names) {
+      const projectPath = registry[name].path;
+      try {
+        fs.rmSync(path.join(projectPath, '.ai-index'), { recursive: true, force: true });
+        stripClaudeMd(projectPath);
+        console.log(`   🗑️  ${name}: .ai-index/ deleted ✅`);
+      } catch { console.log(c.yellow(`   ⚠️  ${name}: could not delete .ai-index/`)); }
+    }
+  }
+
+  fs.rmSync(HOME_DIR, { recursive: true, force: true });
+  console.log(c.green('✅ Global memory cleared. Fresh start! 🌱'));
+}
+
+// ----------------------------------------------------------- interactive menu
+
+async function menu() {
+  const cwd = process.cwd();
+  const projectName = path.basename(cwd);
+  const indexed = fs.existsSync(path.join(cwd, '.ai-index', 'PROJECT-INDEX.md'));
+
+  console.log('');
+  console.log(c.bold(c.cyan(`⚡ ai-index v${VERSION}`)) + c.dim(' — make your AI assistant cheaper and faster 💰'));
+  console.log('');
+  console.log(`   📂 Current project: ${c.bold(projectName)} ${indexed ? c.green('✅ indexed') : c.yellow('📭 not indexed yet')}`);
+  console.log('');
+  console.log(c.bold('   What would you like to do?'));
+  console.log('');
+  console.log(`   ${c.cyan('1')}) 📦 Index / update this project  ${c.dim('(takes <1 second ⚡)')}`);
+  console.log(`   ${c.cyan('2')}) 📊 Check status of this project`);
+  console.log(`   ${c.cyan('3')}) 📋 List all my indexed projects`);
+  console.log(`   ${c.cyan('4')}) 🗑️  Remove this project's index`);
+  console.log(`   ${c.cyan('5')}) 🧹 Clean global memory`);
+  console.log(`   ${c.cyan('6')}) 👋 Exit`);
+  console.log('');
+
+  const choice = await ask(c.bold('Choose an option [1-6]: '));
+  console.log('');
+
+  switch (choice) {
+    case '1': cmdIndex(cwd); break;
+    case '2': cmdStatus(cwd); break;
+    case '3': cmdList(); break;
+    case '4': await cmdRemove(cwd); break;
+    case '5': await cmdClean(); break;
+    case '6': default: console.log('👋 See you later! Happy coding! ✨'); break;
+  }
+}
+
+// ------------------------------------------------------------------- help
+
 function help() {
   console.log(`
-ai-index v${VERSION} — ultra-compact project indexer for LLMs
+⚡ ai-index v${VERSION} — make your AI assistant cheaper and faster 💰
 
-Usage:
-  ai-index               Index the current directory
-  ai-index <path>        Index the given path
-  ai-index list          List indexed projects
-  ai-index --no-claude   Index without updating CLAUDE.md
-  ai-index --version     Version
-  ai-index --help        This help
+🎮 Commands:
+  ai-index                 🧭 Interactive menu (easiest way to start!)
+  ai-index index [path]    📦 Create / update the index (default: current dir)
+  ai-index update [path]   🔄 Same as index — refresh after code changes
+  ai-index status [path]   📊 Is the project indexed? Is it up to date?
+  ai-index list            📋 List all your indexed projects
+  ai-index remove [path]   🗑️  Delete a project's index (asks first!)
+  ai-index clean           🧹 Clear the global memory (asks first!)
+  ai-index help            💬 This help
 
-Generates .ai-index/PROJECT-INDEX.md: a compact summary of structure,
-classes, methods and functions. Your LLM reads it instead of exploring
-the codebase → massive token reduction. Compatible with Claude, ChatGPT,
-Gemini, Cursor and any AI assistant. Windows / macOS / Linux.
+🚩 Flags:
+  --no-claude    Don't touch CLAUDE.md when indexing
+  --yes, -y      Skip confirmation prompts (for remove / clean)
+  --all          With clean: also delete every project's .ai-index/ folder
+  --version, -v  Show version
+
+💡 How it works:
+   Generates .ai-index/PROJECT-INDEX.md — a compact summary of your
+   project's structure, classes, methods and functions. Your LLM reads
+   it instead of exploring the codebase → up to 99% fewer tokens! 🚀
+
+🌐 Works with Claude, ChatGPT, Gemini, Cursor and any AI assistant.
+🖥️  Windows / macOS / Linux · 🔒 100% local · 📦 Zero dependencies
 `);
 }
 
 // ------------------------------------------------------------------- main
 
-function main() {
+const COMMANDS = new Set(['index', 'update', 'status', 'list', 'remove', 'delete', 'rm', 'clean', 'help']);
+
+async function main() {
   const args = process.argv.slice(2);
   const flags = new Set(args.filter(a => a.startsWith('-')));
   const positional = args.filter(a => !a.startsWith('-'));
-  const cmd = positional[0];
+
+  const opts = {
+    noClaude: flags.has('--no-claude'),
+    yes: flags.has('--yes') || flags.has('-y'),
+    all: flags.has('--all'),
+  };
 
   if (flags.has('--help') || flags.has('-h')) { help(); return; }
   if (flags.has('--version') || flags.has('-v')) { console.log('ai-index ' + VERSION); return; }
-  if (cmd === 'list') { listProjects(); return; }
 
-  const target = path.resolve(cmd || '.');
+  const first = positional[0];
+  const cmd = COMMANDS.has(first) ? first : null;
+  // `ai-index <path>` (no subcommand) still indexes that path — backward compatible.
+  const target = path.resolve(cmd ? (positional[1] || '.') : (first || '.'));
+
+  if (!cmd && !first) {
+    if (process.stdin.isTTY) { await menu(); } else { help(); }
+    return;
+  }
+
+  if (cmd === 'help') { help(); return; }
+  if (cmd === 'list') { cmdList(); return; }
+  if (cmd === 'clean') { await cmdClean(opts); return; }
+
   if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
     console.error('❌ Invalid path: ' + target);
     process.exit(1);
   }
-  buildIndex(target, { noClaude: flags.has('--no-claude') });
+
+  if (cmd === 'status') { cmdStatus(target); return; }
+  if (cmd === 'remove' || cmd === 'delete' || cmd === 'rm') { await cmdRemove(target, opts); return; }
+  // index / update / bare path
+  cmdIndex(target, opts);
 }
 
 if (require.main === module) {
-  main();
+  main().catch(err => { console.error('❌ ' + err.message); process.exit(1); });
 } else {
-  module.exports = { extractJsTs, extractPy, formatSymbols, walk, buildIndex, loadGitignore, isGitignored };
+  module.exports = { extractJsTs, extractPy, formatSymbols, walk, loadGitignore, isGitignored };
 }

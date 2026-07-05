@@ -3,7 +3,9 @@
 /**
  * Smoke tests for ai-index. Zero dependencies — plain node + assert.
  * Creates a fixture project in a temp dir, runs the CLI against it and
- * verifies the generated index. Run with: npm test
+ * verifies every command. AI_INDEX_HOME points the global registry to a
+ * temp dir so tests never touch the user's real ~/.ai-index.
+ * Run with: npm test
  */
 
 const assert = require('assert');
@@ -14,6 +16,14 @@ const { execFileSync } = require('child_process');
 
 const CLI = path.join(__dirname, '..', 'index.js');
 const { extractJsTs, extractPy } = require('..');
+
+// Isolated global registry for the whole test run
+const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-index-home-'));
+const ENV = { ...process.env, AI_INDEX_HOME: tempHome };
+
+function cli(args) {
+  return execFileSync('node', [CLI, ...args], { encoding: 'utf8', env: ENV });
+}
 
 let passed = 0;
 function ok(name, fn) {
@@ -95,7 +105,7 @@ ok('detects python classes and methods', () => {
   assert.strictEqual(symbols[1].name, 'main');
 });
 
-// ---------------------------------------------------- e2e: CLI on fixture
+// ---------------------------------------------------- e2e: fixture project
 
 console.log('\nCLI end-to-end');
 
@@ -124,13 +134,15 @@ write('node_modules/fake-lib/index.js', 'export function neverIndexed() {}');
 write('.gitignore', 'secret-folder/\n');
 write('secret-folder/hidden.ts', 'export class Hidden {}\n');
 
-const cliOutput = execFileSync('node', [CLI, fixture, '--no-claude'], { encoding: 'utf8' });
+// ---- index ----
+
+const indexOutput = cli(['index', fixture, '--no-claude']);
 const indexPath = path.join(fixture, '.ai-index', 'PROJECT-INDEX.md');
 const index = fs.readFileSync(indexPath, 'utf8');
 
-ok('CLI reports success with stats', () => {
-  assert.ok(cliOutput.includes('Project indexed: ' + fixtureName));
-  assert.match(cliOutput, /Reduction: \d+% fewer tokens/);
+ok('`index` reports success with stats', () => {
+  assert.ok(indexOutput.includes('Project indexed: ' + fixtureName));
+  assert.match(indexOutput, /Reduction: \d+% fewer tokens/);
 });
 
 ok('index file is generated', () => {
@@ -169,34 +181,113 @@ ok('--no-claude skips CLAUDE.md creation', () => {
   assert.ok(!fs.existsSync(path.join(fixture, 'CLAUDE.md')));
 });
 
-// CLAUDE.md integration (second run, without --no-claude)
-execFileSync('node', [CLI, fixture], { encoding: 'utf8' });
+ok('bare `ai-index <path>` still indexes (backward compatible)', () => {
+  const out = cli([fixture, '--no-claude']);
+  assert.ok(out.includes('Project indexed: ' + fixtureName));
+});
 
-ok('default run creates CLAUDE.md with ai-index block', () => {
+// ---- status ----
+
+ok('`status` reports up to date right after indexing', () => {
+  const out = cli(['status', fixture]);
+  assert.match(out, /Up to date/);
+});
+
+ok('`status` detects outdated index when a file changes', () => {
+  // "touch" the file: its mtime becomes newer than the index (spawning the
+  // previous CLI processes guarantees the index is at least some ms older)
+  const now = new Date();
+  fs.utimesSync(path.join(fixture, 'src/api/UserApi.ts'), now, now);
+  const out = cli(['status', fixture]);
+  assert.match(out, /Outdated — 1 file\(s\) changed/);
+});
+
+ok('`update` refreshes the index back to up to date', () => {
+  cli(['update', fixture, '--no-claude']);
+  const out = cli(['status', fixture]);
+  assert.match(out, /Up to date/);
+});
+
+// ---- CLAUDE.md integration ----
+
+cli(['index', fixture]);
+
+ok('default `index` creates CLAUDE.md with ai-index block', () => {
   const claude = fs.readFileSync(path.join(fixture, 'CLAUDE.md'), 'utf8');
   assert.match(claude, /<!-- ai-index:start -->/);
   assert.match(claude, /PROJECT-INDEX\.md/);
 });
 
 ok('re-run updates the block without duplicating it', () => {
-  execFileSync('node', [CLI, fixture], { encoding: 'utf8' });
+  cli(['index', fixture]);
   const claude = fs.readFileSync(path.join(fixture, 'CLAUDE.md'), 'utf8');
   const count = (claude.match(/<!-- ai-index:start -->/g) || []).length;
   assert.strictEqual(count, 1);
 });
 
-ok('list command shows the fixture project', () => {
-  const listOutput = execFileSync('node', [CLI, 'list'], { encoding: 'utf8' });
-  assert.ok(listOutput.includes(fixtureName));
+// ---- list ----
+
+ok('`list` shows the fixture project', () => {
+  const out = cli(['list']);
+  assert.ok(out.includes(fixtureName));
 });
 
-// cleanup: temp fixture + its entry in the global registry
+// ---- remove ----
+
+ok('`remove --yes` deletes index, registry entry and CLAUDE.md block', () => {
+  const out = cli(['remove', fixture, '--yes']);
+  assert.match(out, /removed/);
+  assert.ok(!fs.existsSync(path.join(fixture, '.ai-index')));
+  assert.ok(!fs.existsSync(path.join(fixture, 'CLAUDE.md'))); // only contained our block
+  assert.ok(!cli(['list']).includes(fixtureName));
+});
+
+ok('`remove` on a non-indexed project reports nothing to remove', () => {
+  const out = cli(['remove', fixture, '--yes']);
+  assert.match(out, /Nothing to remove/);
+});
+
+ok('`remove` preserves user content in CLAUDE.md', () => {
+  write('CLAUDE.md', '# My project rules\n\nAlways use TypeScript.\n');
+  cli(['index', fixture]);
+  cli(['remove', fixture, '--yes']);
+  const claude = fs.readFileSync(path.join(fixture, 'CLAUDE.md'), 'utf8');
+  assert.ok(claude.includes('Always use TypeScript.'));
+  assert.ok(!claude.includes('ai-index:start'));
+});
+
+// ---- clean ----
+
+ok('`clean --yes` clears the global registry', () => {
+  cli(['index', fixture, '--no-claude']);
+  const out = cli(['clean', '--yes']);
+  assert.match(out, /Global memory cleared/);
+  assert.match(cli(['list']), /No projects indexed yet/);
+});
+
+ok('`clean --all --yes` also deletes project .ai-index folders', () => {
+  cli(['index', fixture, '--no-claude']);
+  assert.ok(fs.existsSync(path.join(fixture, '.ai-index')));
+  cli(['clean', '--all', '--yes']);
+  assert.ok(!fs.existsSync(path.join(fixture, '.ai-index')));
+});
+
+// ---- help / version ----
+
+ok('`help` lists every command', () => {
+  const out = cli(['help']);
+  for (const word of ['index', 'update', 'status', 'list', 'remove', 'clean']) {
+    assert.ok(out.includes(word), 'missing command in help: ' + word);
+  }
+});
+
+ok('--version prints the package version', () => {
+  const version = require('../package.json').version;
+  assert.ok(cli(['--version']).includes(version));
+});
+
+// cleanup
 fs.rmSync(fixture, { recursive: true, force: true });
-const registryPath = path.join(os.homedir(), '.ai-index', 'registry.json');
-try {
-  const registry = JSON.parse(fs.readFileSync(registryPath, 'utf8'));
-  delete registry[fixtureName];
-  fs.writeFileSync(registryPath, JSON.stringify(registry, null, 2), 'utf8');
-} catch { /* no registry */ }
+fs.rmSync(tempHome, { recursive: true, force: true });
 
 console.log(`\n${passed} assertions passed${process.exitCode ? ' — WITH FAILURES ❌' : ' — all green ✅'}\n`);

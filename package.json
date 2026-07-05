@@ -1,6 +1,6 @@
 {
   "name": "ia-project-indexer",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Ultra-compact project indexer for LLMs — cut AI token usage by up to 99%. Works with Claude, ChatGPT, Gemini, Cursor and any AI assistant.",
   "main": "index.js",
   "bin": {

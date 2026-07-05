@@ -1,19 +1,15 @@
 # ⚡ ai-index — IA Project Indexer
 
-> Ultra-compact project indexer for LLMs — cut AI token usage by up to **99%**.
+> Ultra-compact project indexer for LLMs — cut AI token usage by up to **99%**. 🚀
 > Works with **Claude, ChatGPT, Gemini, Cursor, Copilot and any AI assistant**.
 
-[🇪🇸 Versión en español más abajo](#-versión-en-español)
-
----
-
-## The problem
+## 🔥 The problem
 
 Every time you ask an AI assistant about your code, it runs searches and reads
 entire files to understand the project. That exploration repeats **every
 session** and burns thousands of tokens before it even answers your question.
 
-## The solution
+## 💡 The solution
 
 `ai-index` scans your project in **under 1 second** and generates **one
 ultra-compact Markdown file** with everything an LLM needs to know:
@@ -32,8 +28,9 @@ Your assistant reads that file instead of exploring the codebase.
 | ✅ LLM reads the index | **~850** |
 | 💰 Reduction | **99%** |
 
-## Features
+## ✨ Features
 
+- 🧭 **Interactive menu** — just run `ai-index` and pick an option
 - 🗂️ **Full map** — every relevant folder and file, grouped by directory
 - 🏗️ **Signatures** — classes, methods, functions, interfaces, types and exported consts
 - 📦 **Project metadata** — npm scripts and dependencies from `package.json`
@@ -42,7 +39,7 @@ Your assistant reads that file instead of exploring the codebase.
 - 🔒 **100% local** — no network, no telemetry, no cloud
 - 📦 **Zero dependencies** — one file of plain Node.js
 
-## Installation
+## 🚀 Installation
 
 Requires **Node.js ≥ 16**. Same command on Windows, macOS and Linux:
 
@@ -63,37 +60,90 @@ Verify:
 ai-index --version
 ```
 
-## Usage
+## 🎮 Usage
+
+### The easy way — interactive menu
 
 ```bash
 cd /path/to/your/project
-ai-index                 # index the current directory
+ai-index
 ```
 
-Output:
-
 ```
-✅ Project indexed: my-api-project
+⚡ ai-index v1.1.0 — make your AI assistant cheaper and faster 💰
 
-   📄 Index:     .ai-index/PROJECT-INDEX.md
-   📦 Files:     42
-   📊 Source:    293.0 KB  (~75,016 tokens)
-   🗜️  Index:     3.3 KB   (~850 tokens)
-   💰 Reduction: 99% fewer tokens
+   📂 Current project: my-api-project 📭 not indexed yet
+
+   What would you like to do?
+
+   1) 📦 Index / update this project  (takes <1 second ⚡)
+   2) 📊 Check status of this project
+   3) 📋 List all my indexed projects
+   4) 🗑️  Remove this project's index
+   5) 🧹 Clean global memory
+   6) 👋 Exit
+
+Choose an option [1-6]:
 ```
 
-More commands:
+### Direct commands
+
+| Command | What it does |
+|---|---|
+| `ai-index index [path]` | 📦 Create / update the index (default: current dir) |
+| `ai-index update [path]` | 🔄 Same as `index` — refresh after code changes |
+| `ai-index status [path]` | 📊 Is the project indexed? Is it up to date? |
+| `ai-index list` | 📋 List all your indexed projects |
+| `ai-index remove [path]` | 🗑️ Delete a project's index (asks for confirmation) |
+| `ai-index clean` | 🧹 Clear the global memory (asks for confirmation) |
+| `ai-index help` | 💬 Show help |
+
+### Flags
+
+| Flag | Effect |
+|---|---|
+| `--no-claude` | Don't touch `CLAUDE.md` when indexing |
+| `--yes`, `-y` | Skip confirmation prompts (for `remove` / `clean`) |
+| `--all` | With `clean`: also delete every project's `.ai-index/` folder |
+| `--version`, `-v` | Show version |
+
+### Example: index a project
 
 ```bash
-ai-index <path>          # index a specific path
-ai-index list            # list all indexed projects
-ai-index --no-claude     # index without touching CLAUDE.md
-ai-index --help          # help
+cd /path/to/your/project
+ai-index index
 ```
 
-Re-index whenever the code changes significantly — it takes under a second.
+```
+🎉 Done! Project indexed: my-api-project ✨
 
-## How each assistant uses it
+   📄 Index:     .ai-index/PROJECT-INDEX.md
+   📦 Files:     42 scanned
+   📊 Source:    293.0 KB  (~75,016 tokens)
+   🗜️  Index:     3.3 KB   (~850 tokens)
+   💰 Reduction: 99% fewer tokens 🚀
+
+   💡 Tip: your AI assistant now reads .ai-index/PROJECT-INDEX.md
+      instead of exploring the whole codebase. CLAUDE.md is ready ✅
+   🔄 Code changed a lot? Just run: ai-index update
+```
+
+### Example: check if your index is fresh
+
+```bash
+ai-index status
+```
+
+```
+📊 Status — my-api-project
+
+   🕒 Indexed:   2026-07-05 01:54
+   📦 Files:     42 · source 293 KB → index 3.3 KB (99% fewer tokens)
+   🟡 State:     ⚠️  Outdated — 3 file(s) changed since last index
+   👉 Refresh it with: ai-index update  ⚡
+```
+
+## 🤖 How each assistant uses it
 
 | Assistant | Setup |
 |---|---|
@@ -103,14 +153,14 @@ Re-index whenever the code changes significantly — it takes under a second.
 | **ChatGPT / Gemini (web)** | Attach or paste `PROJECT-INDEX.md` at the start of the chat |
 
 The index is plain Markdown — no protocols (MCP), no servers, no vendor lock-in.
-If your assistant can read text, it works.
+If your assistant can read text, it works. 🌐
 
-## Supported languages
+## 🗣️ Supported languages
 
 - **Signature extraction:** TypeScript, JavaScript (`.ts .tsx .js .jsx .mjs .cjs`), Python (`.py`)
 - **Listed in structure:** JSON, YAML, Markdown, HTML, CSS, SQL, Java, C#, Go, Ruby, PHP, shell scripts
 
-## Storage
+## 📍 Storage
 
 - Index: `YOUR_PROJECT/.ai-index/PROJECT-INDEX.md`
 - Global registry: `~/.ai-index/registry.json`
@@ -118,61 +168,16 @@ If your assistant can read text, it works.
 **Git tip:** add `.ai-index/` to your `.gitignore` (each dev regenerates it in a
 second) — or commit it so the whole team shares it.
 
-## Test
+## 🧪 Test
 
 ```bash
 npm test
 ```
 
-17 assertions covering signature extraction (TS/JS/Python), folder exclusion,
-`.gitignore` support, CLAUDE.md integration and the CLI end-to-end.
+28 assertions covering signature extraction (TS/JS/Python), folder exclusion,
+`.gitignore` support, every CLI command (`index`, `update`, `status`, `list`,
+`remove`, `clean`) and the CLAUDE.md integration.
 
----
-
-## 🇪🇸 Versión en español
-
-### El problema
-
-Cada vez que le preguntas algo a tu asistente de IA sobre tu código, este ejecuta
-búsquedas y lee archivos completos para entender el proyecto. Esa exploración se
-repite en **cada sesión** y consume miles de tokens antes de responder.
-
-### La solución
-
-`ai-index` escanea tu proyecto en **menos de 1 segundo** y genera **un solo
-archivo Markdown ultra-compacto** (`.ai-index/PROJECT-INDEX.md`) con todo lo que
-un LLM necesita: estructura, clases, métodos, funciones y dependencias. Tu
-asistente lee ese archivo en vez de explorar el código → **hasta 99% menos tokens**.
-
-### Instalación
-
-Requiere **Node.js ≥ 16**. Mismo comando en Windows, macOS y Linux:
-
-```bash
-npm install -g ia-project-indexer
-```
-
-### Uso
-
-```bash
-cd /ruta/a/tu/proyecto
-ai-index                 # indexa el directorio actual
-ai-index list            # lista proyectos indexados
-ai-index --no-claude     # indexa sin tocar CLAUDE.md
-```
-
-Re-indexa cuando el código cambie — tarda menos de un segundo.
-
-### Compatibilidad
-
-- **Claude Code:** automático (ai-index configura `CLAUDE.md` por ti)
-- **Cursor / Copilot:** una línea en `.cursorrules` / `copilot-instructions.md`
-- **ChatGPT / Gemini:** adjunta o pega el índice al inicio del chat
-
-100% local: sin red, sin telemetría, sin cloud. Cero dependencias.
-
----
-
-## License
+## 📜 License
 
 [MIT](LICENSE) © [RaffyRod](https://github.com/RaffyRod)
