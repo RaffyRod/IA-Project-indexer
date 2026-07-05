@@ -1,14 +1,18 @@
 {
   "name": "ia-project-indexer",
-  "version": "1.6.0",
-  "description": "IA Project Indexer — ultra-compact codebase indexer for LLMs. Cut AI token usage by up to 99%. Generates one portable Markdown index your AI assistant reads instead of exploring your code. Works with Claude, ChatGPT, Gemini, Cursor, Copilot and any AI assistant.",
+  "version": "1.7.0",
+  "description": "Save AI tokens: index your codebase for LLMs and cut token usage by up to 99%. One command creates a compact project map (repo map) that Claude, ChatGPT, Gemini, Cursor and Copilot read instead of exploring your code. Local, zero dependencies, auto-updates on every git commit.",
   "main": "index.js",
   "bin": {
     "ia-index": "./index.js"
   },
   "scripts": {
     "test": "node test/test.js",
-    "prepublishOnly": "npm test"
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "prepare": "git config core.hooksPath .githooks || exit 0",
+    "prepublishOnly": "npm run lint && npm test"
   },
   "repository": {
     "type": "git",
@@ -27,14 +31,21 @@
     "ai",
     "llm",
     "tokens",
+    "save-tokens",
     "token-reduction",
     "token-saver",
+    "token-usage",
     "context-window",
-    "codebase-index",
-    "project-index",
-    "code-indexer",
     "ai-context",
+    "codebase-index",
+    "codebase-context",
+    "code-indexer",
+    "project-index",
+    "repo-map",
+    "code-map",
+    "ai-assistant",
     "ai-tools",
+    "ai-coding",
     "developer-tools",
     "cli",
     "claude",
@@ -45,11 +56,18 @@
     "cursor",
     "copilot",
     "anthropic",
-    "prompt-engineering"
+    "agents-md",
+    "prompt-engineering",
+    "pre-commit"
   ],
   "files": [
     "index.js",
     "README.md",
     "LICENSE"
-  ]
+  ],
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.6.0",
+    "prettier": "^3.9.4"
+  }
 }

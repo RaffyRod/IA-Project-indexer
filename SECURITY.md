@@ -8,7 +8,10 @@ IA Project Indexer is designed with a minimal attack surface:
   npm supply-chain attack (compromising a transitive dependency) has nothing
   to grab onto here.
 - **No install scripts** — no `postinstall`, `preinstall` or any lifecycle
-  hook. Installing this package executes **nothing**.
+  hook that runs on `npm install` from the registry. Installing this package
+  executes **nothing**. (The `prepare` script only runs for contributors
+  working inside a git clone — it wires up the repo's own lint hooks — and
+  never runs on registry installs.)
 - **No network access** — the code contains no `http`, `https`, `net` or
   `fetch` usage. Nothing is downloaded, nothing is uploaded, no telemetry.
 - **No dynamic code execution** — no `eval`, no `new Function`, no dynamic

@@ -76,7 +76,11 @@ ok('detects exported functions, interfaces, types and consts', () => {
   ].join('\n');
   const kinds = extractJsTs(src).map(s => `${s.kind}:${s.name}`);
   assert.deepStrictEqual(kinds, [
-    'fn:uniqueId', 'fn:md5', 'interface:TestCase', 'type:Environment', 'const:balanceData',
+    'fn:uniqueId',
+    'fn:md5',
+    'interface:TestCase',
+    'type:Environment',
+    'const:balanceData',
   ]);
 });
 
@@ -170,12 +174,7 @@ ok('PHP: classes with methods and standalone functions', () => {
 });
 
 ok('Ruby: classes with methods', () => {
-  const src = [
-    'class Parser < Base',
-    '  def parse!',
-    '  end',
-    'end',
-  ].join('\n');
+  const src = ['class Parser < Base', '  def parse!', '  end', 'end'].join('\n');
   const symbols = extractRuby(src);
   assert.strictEqual(symbols[0].name, 'Parser');
   assert.strictEqual(symbols[0].extends, 'Base');
@@ -195,16 +194,28 @@ function write(rel, content) {
   fs.writeFileSync(abs, content, 'utf8');
 }
 
-write('package.json', JSON.stringify({
-  name: 'fixture-project',
-  description: 'Test fixture',
-  scripts: { test: 'echo ok' },
-  dependencies: { ajv: '^8.0.0' },
-}));
-write('src/api/BaseApi.ts', 'export abstract class BaseApi {\n  protected url() {}\n  async send() {}\n}\n');
-write('src/api/UserApi.ts', 'export class UserApi extends BaseApi {\n  get() {}\n  create() {}\n}\n');
+write(
+  'package.json',
+  JSON.stringify({
+    name: 'fixture-project',
+    description: 'Test fixture',
+    scripts: { test: 'echo ok' },
+    dependencies: { ajv: '^8.0.0' },
+  }),
+);
+write(
+  'src/api/BaseApi.ts',
+  'export abstract class BaseApi {\n  protected url() {}\n  async send() {}\n}\n',
+);
+write(
+  'src/api/UserApi.ts',
+  'export class UserApi extends BaseApi {\n  get() {}\n  create() {}\n}\n',
+);
 write('src/helpers/crypto.py', 'def unique_id():\n    pass\n');
-write('src/server/main.go', 'type Server struct {\n}\nfunc (s *Server) Start() error {\n}\nfunc main() {\n}\n');
+write(
+  'src/server/main.go',
+  'type Server struct {\n}\nfunc (s *Server) Start() error {\n}\nfunc main() {\n}\n',
+);
 write('src/ignored.log', 'not indexable');
 // heavy folder that must be skipped
 write('node_modules/fake-lib/index.js', 'export function neverIndexed() {}');
@@ -350,7 +361,13 @@ ok('`export --out` creates a portable JSON file with the index', () => {
 ok('`export` auto-indexes a project that has no index yet', () => {
   const freshProject = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-index-fresh-'));
   fs.writeFileSync(path.join(freshProject, 'app.js'), 'export function hello() {}\n');
-  const out = cli(['export', freshProject, '--no-claude', '--out', path.join(tempHome, 'fresh.json')]);
+  const out = cli([
+    'export',
+    freshProject,
+    '--no-claude',
+    '--out',
+    path.join(tempHome, 'fresh.json'),
+  ]);
   assert.match(out, /indexing it first/);
   assert.match(out, /Export ready/);
   fs.rmSync(freshProject, { recursive: true, force: true });
@@ -362,7 +379,10 @@ const importName = path.basename(importTarget);
 ok('`import` loads an exported index on another machine (fresh folder)', () => {
   const out = cli(['import', exportFile, importTarget]);
   assert.match(out, /Import complete/);
-  const imported = fs.readFileSync(path.join(importTarget, '.ia-index', 'PROJECT-INDEX.md'), 'utf8');
+  const imported = fs.readFileSync(
+    path.join(importTarget, '.ia-index', 'PROJECT-INDEX.md'),
+    'utf8',
+  );
   assert.ok(imported.includes('class BaseApi'));
   const claude = fs.readFileSync(path.join(importTarget, 'CLAUDE.md'), 'utf8');
   assert.match(claude, /PROJECT-INDEX\.md/);
@@ -387,7 +407,10 @@ ok('`import` rejects JSON with an unrecognized format', () => {
 });
 
 ok('`import` rejects a missing file with a friendly error', () => {
-  assert.throws(() => cli(['import', path.join(tempHome, 'ghost.json'), importTarget]), /File not found/);
+  assert.throws(
+    () => cli(['import', path.join(tempHome, 'ghost.json'), importTarget]),
+    /File not found/,
+  );
 });
 
 fs.rmSync(importTarget, { recursive: true, force: true });
@@ -431,7 +454,8 @@ ok('two projects with the same folder name never collide in the registry', () =>
   const parentB = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-index-b-'));
   const projA = path.join(parentA, 'my-api');
   const projB = path.join(parentB, 'my-api');
-  fs.mkdirSync(projA); fs.mkdirSync(projB);
+  fs.mkdirSync(projA);
+  fs.mkdirSync(projB);
   fs.writeFileSync(path.join(projA, 'a.js'), 'export function fromA() {}\n');
   fs.writeFileSync(path.join(projB, 'b.js'), 'export function fromB() {}\n');
   cli(['index', projA, '--no-claude']);
@@ -595,7 +619,17 @@ ok('`clean --all --yes` also deletes project .ia-index folders', () => {
 
 ok('`help` lists every command', () => {
   const out = cli(['help']);
-  for (const word of ['index', 'update', 'status', 'list', 'stats', 'export', 'import', 'remove', 'clean']) {
+  for (const word of [
+    'index',
+    'update',
+    'status',
+    'list',
+    'stats',
+    'export',
+    'import',
+    'remove',
+    'clean',
+  ]) {
     assert.ok(out.includes(word), 'missing command in help: ' + word);
   }
 });
@@ -609,4 +643,6 @@ ok('--version prints the package version', () => {
 fs.rmSync(fixture, { recursive: true, force: true });
 fs.rmSync(tempHome, { recursive: true, force: true });
 
-console.log(`\n${passed} assertions passed${process.exitCode ? ' — WITH FAILURES ❌' : ' — all green ✅'}\n`);
+console.log(
+  `\n${passed} assertions passed${process.exitCode ? ' — WITH FAILURES ❌' : ' — all green ✅'}\n`,
+);

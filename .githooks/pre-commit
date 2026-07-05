@@ -1,0 +1,16 @@
+#!/bin/sh
+# IA Project Indexer repo pre-commit: format check + lint + fresh index.
+# Committed in .githooks/ and activated via `npm run prepare` (core.hooksPath).
+
+echo "💅 Checking format (prettier)..."
+npm run --silent format:check || {
+  echo ""
+  echo "❌ Formatting issues found. Fix them with: npm run format"
+  exit 1
+}
+
+echo "🔎 Linting (eslint)..."
+npm run --silent lint || exit 1
+
+# Keep the AI project index fresh (instant when nothing changed)
+command -v ia-index >/dev/null 2>&1 && ia-index update --quiet --if-changed --no-ai-config || true

@@ -47,46 +47,117 @@ const LEGACY_INDEX_DIR = '.ai-index'; // pre-1.4.0 folder name inside projects
 const useColor = process.stdout.isTTY && !process.env.NO_COLOR;
 const paint = code => s => (useColor ? `\x1b[${code}m${s}\x1b[0m` : s);
 const c = {
-  green: paint('32'), yellow: paint('33'), cyan: paint('36'),
-  magenta: paint('35'), red: paint('31'), bold: paint('1'), dim: paint('2'),
+  green: paint('32'),
+  yellow: paint('33'),
+  cyan: paint('36'),
+  magenta: paint('35'),
+  red: paint('31'),
+  bold: paint('1'),
+  dim: paint('2'),
 };
 
 // Folders that are never indexed (the #1 cause of hung indexers)
 const IGNORE_DIRS = new Set([
-  'node_modules', '.git', '.svn', '.hg', 'dist', 'build', 'out', 'coverage',
-  'test-results', 'allure-results', 'allure-report', '.scannerwork',
-  '.next', '.nuxt', '.cache', '.turbo', '.parcel-cache', 'vendor',
-  '__pycache__', '.venv', 'venv', 'env', '.idea', '.vscode', '.vs',
-  'bin', 'obj', 'target', '.gradle', '.ia-index', '.ai-index', '.codebase-memory',
-  '.husky', '.github', 'tmp', 'temp', 'logs',
+  'node_modules',
+  '.git',
+  '.svn',
+  '.hg',
+  'dist',
+  'build',
+  'out',
+  'coverage',
+  'test-results',
+  'allure-results',
+  'allure-report',
+  '.scannerwork',
+  '.next',
+  '.nuxt',
+  '.cache',
+  '.turbo',
+  '.parcel-cache',
+  'vendor',
+  '__pycache__',
+  '.venv',
+  'venv',
+  'env',
+  '.idea',
+  '.vscode',
+  '.vs',
+  'bin',
+  'obj',
+  'target',
+  '.gradle',
+  '.ia-index',
+  '.ai-index',
+  '.codebase-memory',
+  '.husky',
+  '.github',
+  'tmp',
+  'temp',
+  'logs',
 ]);
 
 const IGNORE_FILES = new Set([
-  'package-lock.json', 'yarn.lock', 'pnpm-lock.yaml', 'composer.lock',
-  'Gemfile.lock', 'poetry.lock', 'Cargo.lock', '.DS_Store', 'Thumbs.db',
+  'package-lock.json',
+  'yarn.lock',
+  'pnpm-lock.yaml',
+  'composer.lock',
+  'Gemfile.lock',
+  'poetry.lock',
+  'Cargo.lock',
+  '.DS_Store',
+  'Thumbs.db',
 ]);
 
 // Extensions whose content is analyzed (class/function signatures)
 const CODE_EXTS = new Set([
-  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
-  '.py', '.go', '.java', '.cs', '.php', '.rb',
+  '.ts',
+  '.tsx',
+  '.js',
+  '.jsx',
+  '.mjs',
+  '.cjs',
+  '.py',
+  '.go',
+  '.java',
+  '.cs',
+  '.php',
+  '.rb',
 ]);
 // Extensions that are only listed (they exist, but are not analyzed)
 const LIST_EXTS = new Set([
-  '.json', '.md', '.yml', '.yaml', '.xml', '.html', '.css', '.scss',
-  '.sql', '.sh', '.ps1',
+  '.json',
+  '.md',
+  '.yml',
+  '.yaml',
+  '.xml',
+  '.html',
+  '.css',
+  '.scss',
+  '.sql',
+  '.sh',
+  '.ps1',
 ]);
 
 const MAX_FILE_SIZE = 512 * 1024; // skip analyzing files > 512KB
 
 // ---------------------------------------------------------------- helpers
 
-function kb(bytes) { return (bytes / 1024).toFixed(1) + ' KB'; }
-function tokens(bytes) { return Math.round(bytes / 4); } // ~4 chars per token
+function kb(bytes) {
+  return (bytes / 1024).toFixed(1) + ' KB';
+}
+function tokens(bytes) {
+  return Math.round(bytes / 4);
+} // ~4 chars per token
 
 function ask(question) {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise(resolve => rl.question(question, answer => { rl.close(); resolve(answer.trim()); }));
+  return new Promise(resolve =>
+    rl.question(question, answer => {
+      rl.close();
+      resolve(answer.trim());
+    }),
+  );
 }
 
 async function confirm(question, autoYes) {
@@ -110,15 +181,23 @@ function normalizeRegistry(raw) {
 }
 
 function loadRegistry() {
-  try { return normalizeRegistry(JSON.parse(fs.readFileSync(REGISTRY, 'utf8'))); } catch { /* try legacy */ }
+  try {
+    return normalizeRegistry(JSON.parse(fs.readFileSync(REGISTRY, 'utf8')));
+  } catch {
+    /* try legacy */
+  }
   // one-time migration from the pre-1.4.0 home (~/.ai-index)
   if (!process.env.IA_INDEX_HOME) {
     try {
-      const legacy = normalizeRegistry(JSON.parse(fs.readFileSync(path.join(LEGACY_HOME, 'registry.json'), 'utf8')));
+      const legacy = normalizeRegistry(
+        JSON.parse(fs.readFileSync(path.join(LEGACY_HOME, 'registry.json'), 'utf8')),
+      );
       saveRegistry(legacy);
       fs.rmSync(LEGACY_HOME, { recursive: true, force: true });
       return legacy;
-    } catch { /* no legacy registry either */ }
+    } catch {
+      /* no legacy registry either */
+    }
   }
   return {};
 }
@@ -135,15 +214,23 @@ function ensureGitignore(root) {
   if (!fs.existsSync(path.join(root, '.git'))) return false; // not a git repo
   const gi = path.join(root, '.gitignore');
   let content = '';
-  try { content = fs.readFileSync(gi, 'utf8'); } catch { /* will create it */ }
+  try {
+    content = fs.readFileSync(gi, 'utf8');
+  } catch {
+    /* will create it */
+  }
 
   const existing = new Set(content.split(/\r?\n/).map(l => l.trim().replace(/\/+$/, '')));
-  const needed = ['.ia-index/', '*.ia-index.json'].filter(n => !existing.has(n.replace(/\/+$/, '')));
+  const needed = ['.ia-index/', '*.ia-index.json'].filter(
+    n => !existing.has(n.replace(/\/+$/, '')),
+  );
   if (!needed.length) return false;
 
-  const block = (content ? content.trimEnd() + '\n\n' : '') +
+  const block =
+    (content ? content.trimEnd() + '\n\n' : '') +
     '# IA Project Indexer — local index, regenerate anytime with `ia-index`\n' +
-    needed.join('\n') + '\n';
+    needed.join('\n') +
+    '\n';
   fs.writeFileSync(gi, block, 'utf8');
   return true;
 }
@@ -157,7 +244,9 @@ function loadGitignore(root) {
       if (!line || line.startsWith('#') || line.startsWith('!')) continue;
       patterns.push(line.replace(/^\/+|\/+$/g, ''));
     }
-  } catch { /* no .gitignore */ }
+  } catch {
+    /* no .gitignore */
+  }
   return patterns;
 }
 
@@ -165,9 +254,13 @@ function isGitignored(relPath, name, patterns) {
   for (const p of patterns) {
     if (p.includes('*')) {
       try {
-        const rx = new RegExp('^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$');
+        const rx = new RegExp(
+          '^' + p.replace(/[.+^${}()|[\]\\]/g, '\\$&').replace(/\*/g, '.*') + '$',
+        );
         if (rx.test(name) || rx.test(relPath)) return true;
-      } catch { /* malformed pattern — skip it */ }
+      } catch {
+        /* malformed pattern — skip it */
+      }
     } else if (name === p || relPath === p || relPath.startsWith(p + '/')) {
       return true;
     }
@@ -178,8 +271,22 @@ function isGitignored(relPath, name, patterns) {
 // ------------------------------------------------------- signature extraction
 
 const JS_KEYWORDS = new Set([
-  'if', 'for', 'while', 'switch', 'catch', 'return', 'new', 'typeof',
-  'await', 'else', 'do', 'try', 'throw', 'super', 'function', 'constructor',
+  'if',
+  'for',
+  'while',
+  'switch',
+  'catch',
+  'return',
+  'new',
+  'typeof',
+  'await',
+  'else',
+  'do',
+  'try',
+  'throw',
+  'super',
+  'function',
+  'constructor',
 ]);
 
 function extractJsTs(content) {
@@ -189,8 +296,10 @@ function extractJsTs(content) {
 
   for (const line of lines) {
     // classes
-    let m = line.match(/^\s*export\s+(?:default\s+)?(abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?/) ||
-            line.match(/^(abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?/);
+    let m =
+      line.match(
+        /^\s*export\s+(?:default\s+)?(abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?/,
+      ) || line.match(/^(abstract\s+)?class\s+(\w+)(?:\s+extends\s+(\w+))?/);
     if (m) {
       currentClass = { name: m[2], abstract: !!m[1], extends: m[3] || null, methods: [] };
       out.push({ kind: 'class', ...currentClass });
@@ -198,7 +307,9 @@ function extractJsTs(content) {
     }
     // methods inside a class (indented)
     if (currentClass) {
-      m = line.match(/^\s{2,6}(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+)*(?:async\s+)?(\w+)\s*\(/);
+      m = line.match(
+        /^\s{2,6}(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+)*(?:async\s+)?(\w+)\s*\(/,
+      );
       if (m && !JS_KEYWORDS.has(m[1]) && !currentClass.methods.includes(m[1])) {
         currentClass.methods.push(m[1]);
         continue;
@@ -207,16 +318,28 @@ function extractJsTs(content) {
     }
     // exported functions
     m = line.match(/^\s*export\s+(?:default\s+)?(?:async\s+)?function\s+(\w+)/);
-    if (m) { out.push({ kind: 'fn', name: m[1] }); continue; }
+    if (m) {
+      out.push({ kind: 'fn', name: m[1] });
+      continue;
+    }
     // exported arrow functions
     m = line.match(/^\s*export\s+const\s+(\w+)\s*(?::[^=]+)?=\s*(?:async\s*)?\(/);
-    if (m) { out.push({ kind: 'fn', name: m[1] }); continue; }
+    if (m) {
+      out.push({ kind: 'fn', name: m[1] });
+      continue;
+    }
     // exported interfaces / types / enums
     m = line.match(/^\s*export\s+(?:declare\s+)?(interface|type|enum)\s+(\w+)/);
-    if (m) { out.push({ kind: m[1], name: m[2] }); continue; }
+    if (m) {
+      out.push({ kind: m[1], name: m[2] });
+      continue;
+    }
     // exported consts (data)
     m = line.match(/^\s*export\s+const\s+(\w+)\s*(?::\s*([\w[\]<>. ]+))?\s*=/);
-    if (m) { out.push({ kind: 'const', name: m[1], type: m[2] || null }); continue; }
+    if (m) {
+      out.push({ kind: 'const', name: m[1], type: m[2] || null });
+      continue;
+    }
   }
   return out;
 }
@@ -269,21 +392,41 @@ function extractGo(content) {
 }
 
 const JAVACS_KEYWORDS = new Set([
-  'if', 'for', 'while', 'switch', 'catch', 'return', 'new', 'else', 'do',
-  'try', 'throw', 'using', 'lock', 'foreach', 'get', 'set', 'this', 'base',
+  'if',
+  'for',
+  'while',
+  'switch',
+  'catch',
+  'return',
+  'new',
+  'else',
+  'do',
+  'try',
+  'throw',
+  'using',
+  'lock',
+  'foreach',
+  'get',
+  'set',
+  'this',
+  'base',
 ]);
 
 function extractJavaCs(content) {
   const out = [];
   let current = null;
   for (const line of content.split(/\r?\n/)) {
-    let m = line.match(/^\s*(?:public\s+|private\s+|protected\s+|internal\s+)?(?:static\s+|abstract\s+|final\s+|sealed\s+|partial\s+)*(class|interface|enum|record)\s+(\w+)(?:\s*(?:extends|:)\s*(\w+))?/);
+    let m = line.match(
+      /^\s*(?:public\s+|private\s+|protected\s+|internal\s+)?(?:static\s+|abstract\s+|final\s+|sealed\s+|partial\s+)*(class|interface|enum|record)\s+(\w+)(?:\s*(?:extends|:)\s*(\w+))?/,
+    );
     if (m) {
       current = { name: m[2], extends: m[3] || null, methods: [] };
-      out.push({ kind: (m[1] === 'class' || m[1] === 'record') ? 'class' : m[1], ...current });
+      out.push({ kind: m[1] === 'class' || m[1] === 'record' ? 'class' : m[1], ...current });
       continue;
     }
-    m = line.match(/^\s+(?:public|protected|internal)\s+(?:static\s+|async\s+|virtual\s+|override\s+|final\s+|abstract\s+|synchronized\s+)*[\w<>[\],?\s]+?\s+(\w+)\s*\(/);
+    m = line.match(
+      /^\s+(?:public|protected|internal)\s+(?:static\s+|async\s+|virtual\s+|override\s+|final\s+|abstract\s+|synchronized\s+)*[\w<>[\],?\s]+?\s+(\w+)\s*\(/,
+    );
     if (m && current && !JAVACS_KEYWORDS.has(m[1]) && !current.methods.includes(m[1])) {
       current.methods.push(m[1]);
     }
@@ -295,7 +438,9 @@ function extractPhp(content) {
   const out = [];
   let current = null;
   for (const line of content.split(/\r?\n/)) {
-    let m = line.match(/^\s*(?:abstract\s+|final\s+)*(class|interface|trait)\s+(\w+)(?:\s+extends\s+(\w+))?/);
+    let m = line.match(
+      /^\s*(?:abstract\s+|final\s+)*(class|interface|trait)\s+(\w+)(?:\s+extends\s+(\w+))?/,
+    );
     if (m) {
       current = { name: m[2], extends: m[3] || null, methods: [] };
       out.push({ kind: m[1] === 'interface' ? 'interface' : 'class', ...current });
@@ -339,12 +484,19 @@ function extractRuby(content) {
 
 function extractorFor(ext) {
   switch (ext) {
-    case '.py': return extractPy;
-    case '.go': return extractGo;
-    case '.java': case '.cs': return extractJavaCs;
-    case '.php': return extractPhp;
-    case '.rb': return extractRuby;
-    default: return extractJsTs;
+    case '.py':
+      return extractPy;
+    case '.go':
+      return extractGo;
+    case '.java':
+    case '.cs':
+      return extractJavaCs;
+    case '.php':
+      return extractPhp;
+    case '.rb':
+      return extractRuby;
+    default:
+      return extractJsTs;
   }
 }
 
@@ -379,8 +531,11 @@ function walk(root, gitignore) {
   function visit(dir, rel, depth) {
     if (depth > MAX_DEPTH) return;
     let entries;
-    try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
-    catch { return; }
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
 
     for (const e of entries) {
       const relPath = rel ? rel + '/' + e.name : e.name;
@@ -395,9 +550,19 @@ function walk(root, gitignore) {
         const ext = path.extname(e.name).toLowerCase();
         if (!CODE_EXTS.has(ext) && !LIST_EXTS.has(ext)) continue;
         let stat;
-        try { stat = fs.statSync(path.join(dir, e.name)); } catch { continue; }
+        try {
+          stat = fs.statSync(path.join(dir, e.name));
+        } catch {
+          continue;
+        }
         totalBytes += stat.size;
-        files.push({ relPath, abs: path.join(dir, e.name), ext, size: stat.size, mtimeMs: stat.mtimeMs });
+        files.push({
+          relPath,
+          abs: path.join(dir, e.name),
+          ext,
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+        });
       }
     }
   }
@@ -411,7 +576,9 @@ function walk(root, gitignore) {
 function cmdIndex(root, opts = {}) {
   // safety net: indexing a drive root or the home folder would scan everything
   if (root === path.parse(root).root || root === os.homedir()) {
-    console.error(`🛑 Refusing to index ${root} — that would scan your entire ${root === os.homedir() ? 'home folder' : 'drive'}.`);
+    console.error(
+      `🛑 Refusing to index ${root} — that would scan your entire ${root === os.homedir() ? 'home folder' : 'drive'}.`,
+    );
     console.error('   👉 cd into a specific project folder and run ia-index there.');
     process.exit(1);
   }
@@ -456,7 +623,9 @@ function cmdIndex(root, opts = {}) {
   lines.push(`# PROJECT INDEX — ${projectName}`);
   lines.push('');
   lines.push(`> Generated by IA Project Indexer v${VERSION} · ${now}`);
-  lines.push(`> ${files.length} files · source ${kb(totalBytes)} (~${tokens(totalBytes).toLocaleString()} tokens)`);
+  lines.push(
+    `> ${files.length} files · source ${kb(totalBytes)} (~${tokens(totalBytes).toLocaleString()} tokens)`,
+  );
   lines.push('>');
   lines.push('> 🧠 **Instruction for the LLM:** this index summarizes the WHOLE project.');
   lines.push('> Consult it first (structure, classes, methods). Only open a source');
@@ -472,7 +641,9 @@ function cmdIndex(root, opts = {}) {
     const deps = Object.keys(pkg.dependencies || {}).concat(Object.keys(pkg.devDependencies || {}));
     if (deps.length) lines.push(`- Dependencies: ${deps.join(', ')}`);
     lines.push('');
-  } catch { /* no package.json */ }
+  } catch {
+    /* no package.json */
+  }
 
   lines.push('## Structure & symbols');
   lines.push('');
@@ -483,7 +654,11 @@ function cmdIndex(root, opts = {}) {
       const name = path.basename(f.relPath);
       if (CODE_EXTS.has(f.ext) && f.size <= MAX_FILE_SIZE) {
         let content = '';
-        try { content = fs.readFileSync(f.abs, 'utf8'); } catch { /* skip */ }
+        try {
+          content = fs.readFileSync(f.abs, 'utf8');
+        } catch {
+          /* skip */
+        }
         const symbols = extractorFor(f.ext)(content);
         const parts = formatSymbols(symbols);
         if (parts.length) {
@@ -525,7 +700,9 @@ function cmdIndex(root, opts = {}) {
   const gitignoreUpdated = ensureGitignore(root);
 
   if (opts.quiet) {
-    console.log(`⚡ ia-index: ${projectName} updated (${files.length} files, ${reduction}% tokens saved)`);
+    console.log(
+      `⚡ ia-index: ${projectName} updated (${files.length} files, ${reduction}% tokens saved)`,
+    );
     return;
   }
 
@@ -534,14 +711,20 @@ function cmdIndex(root, opts = {}) {
   console.log('');
   console.log(`   📄 Index:     ${c.cyan(outFile)}`);
   console.log(`   📦 Files:     ${files.length} scanned`);
-  console.log(`   📊 Source:    ${kb(totalBytes)}  ${c.dim(`(~${tokens(totalBytes).toLocaleString()} tokens)`)}`);
-  console.log(`   🗜️  Index:     ${kb(indexBytes)}  ${c.dim(`(~${tokens(indexBytes).toLocaleString()} tokens)`)}`);
+  console.log(
+    `   📊 Source:    ${kb(totalBytes)}  ${c.dim(`(~${tokens(totalBytes).toLocaleString()} tokens)`)}`,
+  );
+  console.log(
+    `   🗜️  Index:     ${kb(indexBytes)}  ${c.dim(`(~${tokens(indexBytes).toLocaleString()} tokens)`)}`,
+  );
   console.log(`   💰 Reduction: ${c.green(c.bold(`${reduction}% fewer tokens`))} 🚀`);
   if (touched.length) {
     console.log(`   🤖 AI configs ready: ${c.cyan(touched.join(' · '))} ✅`);
   }
   if (gitignoreUpdated) {
-    console.log(`   🙈 .gitignore updated: ${c.cyan('.ia-index/ · *.ia-index.json')} ${c.dim('(local-only, never committed)')}`);
+    console.log(
+      `   🙈 .gitignore updated: ${c.cyan('.ia-index/ · *.ia-index.json')} ${c.dim('(local-only, never committed)')}`,
+    );
   }
   console.log('');
   console.log(c.dim('   💡 Tip: your AI assistant now reads .ia-index/PROJECT-INDEX.md'));
@@ -549,7 +732,9 @@ function cmdIndex(root, opts = {}) {
   console.log(c.dim('   🔄 Code changed a lot? Just run: ia-index update'));
   if (indexBytes > 150 * 1024) {
     console.log('');
-    console.log(c.yellow('   ⚠️  Your index is quite large (>150 KB). Consider adding build output'));
+    console.log(
+      c.yellow('   ⚠️  Your index is quite large (>150 KB). Consider adding build output'),
+    );
     console.log(c.yellow('      or generated folders to .gitignore so they are excluded.'));
   }
   console.log('');
@@ -561,9 +746,9 @@ const BLOCK_END = '<!-- ai-index:end -->';
 // One command configures EVERY assistant: files with createIfMissing are
 // always written; the others only get the block if the user already has them.
 const AI_CONFIG_FILES = [
-  { file: 'CLAUDE.md', createIfMissing: true },                                  // Claude Code
-  { file: 'AGENTS.md', createIfMissing: true },                                  // open agents standard (Codex, Cursor, Jules…)
-  { file: '.cursorrules', createIfMissing: false },                              // Cursor (legacy rules file)
+  { file: 'CLAUDE.md', createIfMissing: true }, // Claude Code
+  { file: 'AGENTS.md', createIfMissing: true }, // open agents standard (Codex, Cursor, Jules…)
+  { file: '.cursorrules', createIfMissing: false }, // Cursor (legacy rules file)
   { file: path.join('.github', 'copilot-instructions.md'), createIfMissing: false }, // GitHub Copilot
 ];
 
@@ -587,8 +772,11 @@ function updateAiConfigs(root) {
   for (const target of AI_CONFIG_FILES) {
     const abs = path.join(root, target.file);
     let content = '';
-    try { content = fs.readFileSync(abs, 'utf8'); }
-    catch { if (!target.createIfMissing) continue; }
+    try {
+      content = fs.readFileSync(abs, 'utf8');
+    } catch {
+      if (!target.createIfMissing) continue;
+    }
 
     if (content.includes(BLOCK_START)) {
       content = content.replace(new RegExp(BLOCK_START + '[\\s\\S]*?' + BLOCK_END), block);
@@ -605,11 +793,17 @@ function updateAiConfigs(root) {
 function stripAiConfigs(root) {
   for (const target of AI_CONFIG_FILES) {
     const abs = path.join(root, target.file);
-    let content = '';
-    try { content = fs.readFileSync(abs, 'utf8'); } catch { continue; }
+    let content;
+    try {
+      content = fs.readFileSync(abs, 'utf8');
+    } catch {
+      continue;
+    }
     if (!content.includes(BLOCK_START)) continue;
 
-    content = content.replace(new RegExp('\\n*' + BLOCK_START + '[\\s\\S]*?' + BLOCK_END + '\\n*'), '\n').trim();
+    content = content
+      .replace(new RegExp('\\n*' + BLOCK_START + '[\\s\\S]*?' + BLOCK_END + '\\n*'), '\n')
+      .trim();
     if (content) {
       fs.writeFileSync(abs, content + '\n', 'utf8');
     } else {
@@ -631,7 +825,7 @@ function cmdStatus(root) {
   console.log('');
 
   if (!fs.existsSync(indexFile)) {
-    console.log('   📭 This project is not indexed yet — but that\'s easy to fix!');
+    console.log("   📭 This project is not indexed yet — but that's easy to fix!");
     console.log(`   👉 Just run: ${c.green('ia-index index')}  (takes less than a second ⚡)`);
     console.log('');
     return;
@@ -643,8 +837,13 @@ function cmdStatus(root) {
 
   if (entry) {
     console.log(`   🕒 Indexed:   ${String(entry.indexedAt).slice(0, 16).replace('T', ' ')}`);
-    console.log(`   📦 Files:     ${entry.files} · source ${entry.sourceKB} KB → index ${entry.indexKB} KB ${c.green(`(${entry.reduction} fewer tokens)`)}`);
-    if (entry.imported) console.log(`   📥 Imported:  from "${entry.imported.from}" ${c.dim(`(exported ${String(entry.imported.exportedAt).slice(0, 16).replace('T', ' ')})`)}`);
+    console.log(
+      `   📦 Files:     ${entry.files} · source ${entry.sourceKB} KB → index ${entry.indexKB} KB ${c.green(`(${entry.reduction} fewer tokens)`)}`,
+    );
+    if (entry.imported)
+      console.log(
+        `   📥 Imported:  from "${entry.imported.from}" ${c.dim(`(exported ${String(entry.imported.exportedAt).slice(0, 16).replace('T', ' ')})`)}`,
+      );
   } else {
     console.log(`   📄 Index:     ${c.cyan(indexFile)}`);
   }
@@ -652,7 +851,9 @@ function cmdStatus(root) {
   if (changed === 0) {
     console.log(`   💚 State:     ${c.green('✅ Up to date — your AI has fresh knowledge!')}`);
   } else {
-    console.log(`   🟡 State:     ${c.yellow(`⚠️  Outdated — ${changed} file(s) changed since last index`)}`);
+    console.log(
+      `   🟡 State:     ${c.yellow(`⚠️  Outdated — ${changed} file(s) changed since last index`)}`,
+    );
     console.log(`   👉 Refresh it with: ${c.green('ia-index update')}  ⚡`);
   }
   console.log('');
@@ -665,7 +866,7 @@ function cmdList() {
   const names = Object.keys(registry);
   if (!names.length) {
     console.log('');
-    console.log('📭 No projects indexed yet — let\'s change that!');
+    console.log("📭 No projects indexed yet — let's change that!");
     console.log(`   👉 Run ${c.green('ia-index index')} inside any project to get started 🚀`);
     console.log('');
     return;
@@ -677,7 +878,9 @@ function cmdList() {
     console.log(`   ⚡ ${c.cyan(c.bold(p.name))}${p.imported ? ' 📥' : ''}`);
     console.log(`      📍 Path:     ${p.path}`);
     console.log(`      🕒 Indexed:  ${String(p.indexedAt).slice(0, 16).replace('T', ' ')}`);
-    console.log(`      📊 Files:    ${p.files ?? '?'} · source ${p.sourceKB ?? '?'} KB → index ${p.indexKB ?? '?'} KB ${c.green(`(${p.reduction ?? '?'} fewer tokens 💰)`)}`);
+    console.log(
+      `      📊 Files:    ${p.files ?? '?'} · source ${p.sourceKB ?? '?'} KB → index ${p.indexKB ?? '?'} KB ${c.green(`(${p.reduction ?? '?'} fewer tokens 💰)`)}`,
+    );
     console.log('');
   }
 }
@@ -713,7 +916,11 @@ function cmdHookInstall(root) {
   const { file, kind } = hookTarget(root);
 
   let content = '';
-  try { content = fs.readFileSync(file, 'utf8'); } catch { /* new hook file */ }
+  try {
+    content = fs.readFileSync(file, 'utf8');
+  } catch {
+    /* new hook file */
+  }
 
   const already = content.includes(HOOK_START);
   if (already) {
@@ -726,7 +933,11 @@ function cmdHookInstall(root) {
 
   fs.mkdirSync(path.dirname(file), { recursive: true });
   fs.writeFileSync(file, content, 'utf8');
-  try { fs.chmodSync(file, 0o755); } catch { /* windows */ }
+  try {
+    fs.chmodSync(file, 0o755);
+  } catch {
+    /* windows */
+  }
 
   console.log('');
   console.log(c.green(c.bold(`🪝 Pre-commit hook ${already ? 'updated' : 'installed'}! ✨`)));
@@ -742,8 +953,10 @@ function cmdHookInstall(root) {
 
 function cmdHookRemove(root) {
   const { file } = hookTarget(root);
-  let content = '';
-  try { content = fs.readFileSync(file, 'utf8'); } catch {
+  let content;
+  try {
+    content = fs.readFileSync(file, 'utf8');
+  } catch {
     console.log('📭 No pre-commit hook found — nothing to remove. ✨');
     return;
   }
@@ -751,7 +964,9 @@ function cmdHookRemove(root) {
     console.log('📭 The ia-index hook is not installed here — nothing to remove. ✨');
     return;
   }
-  content = content.replace(new RegExp('\\n*' + HOOK_START + '[\\s\\S]*?' + HOOK_END + '\\n*'), '\n').trim();
+  content = content
+    .replace(new RegExp('\\n*' + HOOK_START + '[\\s\\S]*?' + HOOK_END + '\\n*'), '\n')
+    .trim();
   if (content && content !== '#!/bin/sh') {
     fs.writeFileSync(file, content + '\n', 'utf8');
   } else {
@@ -768,12 +983,17 @@ function cmdStats() {
   if (!names.length) {
     console.log('');
     console.log('📭 No projects indexed yet — no savings to show… for now! 😉');
-    console.log(`   👉 Run ${c.green('ia-index index')} inside any project to start saving tokens 🚀`);
+    console.log(
+      `   👉 Run ${c.green('ia-index index')} inside any project to start saving tokens 🚀`,
+    );
     console.log('');
     return;
   }
 
-  let srcKB = 0, idxKB = 0, totalFiles = 0, reindexes = 0;
+  let srcKB = 0,
+    idxKB = 0,
+    totalFiles = 0,
+    reindexes = 0;
   for (const name of names) {
     const p = registry[name];
     srcKB += Number(p.sourceKB) || 0;
@@ -781,8 +1001,8 @@ function cmdStats() {
     totalFiles += Number(p.files) || 0;
     reindexes += Number(p.timesIndexed) || 1;
   }
-  const srcTokens = Math.round(srcKB * 1024 / 4);
-  const idxTokens = Math.round(idxKB * 1024 / 4);
+  const srcTokens = Math.round((srcKB * 1024) / 4);
+  const idxTokens = Math.round((idxKB * 1024) / 4);
   const savedPerSession = srcTokens - idxTokens;
   const pct = srcTokens ? Math.max(0, Math.round((1 - idxTokens / srcTokens) * 100)) : 0;
 
@@ -791,11 +1011,17 @@ function cmdStats() {
   console.log('');
   console.log(`   📦 Projects indexed:   ${names.length}`);
   console.log(`   🗂️  Files covered:      ${totalFiles.toLocaleString()}`);
-  console.log(`   📊 Source analyzed:    ${srcKB.toFixed(1)} KB  ${c.dim(`(~${srcTokens.toLocaleString()} tokens)`)}`);
-  console.log(`   🗜️  Index size:         ${idxKB.toFixed(1)} KB  ${c.dim(`(~${idxTokens.toLocaleString()} tokens)`)}`);
+  console.log(
+    `   📊 Source analyzed:    ${srcKB.toFixed(1)} KB  ${c.dim(`(~${srcTokens.toLocaleString()} tokens)`)}`,
+  );
+  console.log(
+    `   🗜️  Index size:         ${idxKB.toFixed(1)} KB  ${c.dim(`(~${idxTokens.toLocaleString()} tokens)`)}`,
+  );
   console.log(`   🔄 Times (re)indexed:  ${reindexes}`);
   console.log('');
-  console.log(`   💰 ${c.green(c.bold(`Every AI session saves ~${savedPerSession.toLocaleString()} tokens (${pct}%)`))} 🚀`);
+  console.log(
+    `   💰 ${c.green(c.bold(`Every AI session saves ~${savedPerSession.toLocaleString()} tokens (${pct}%)`))} 🚀`,
+  );
   console.log(c.dim('      …and those savings repeat on EVERY new session, in every project.'));
   console.log('');
 }
@@ -820,10 +1046,14 @@ function cmdExport(root, opts = {}) {
     version: VERSION,
     exportedAt: new Date().toISOString(),
     project: projectName,
-    stats: entry ? {
-      files: entry.files, sourceKB: entry.sourceKB,
-      indexKB: entry.indexKB, reduction: entry.reduction,
-    } : null,
+    stats: entry
+      ? {
+          files: entry.files,
+          sourceKB: entry.sourceKB,
+          indexKB: entry.indexKB,
+          reduction: entry.reduction,
+        }
+      : null,
     index: fs.readFileSync(indexFile, 'utf8'),
   };
 
@@ -839,7 +1069,9 @@ function cmdExport(root, opts = {}) {
   console.log(`   📊 Size:     ${kb(fs.statSync(outFile).size)}`);
   console.log('');
   console.log(c.dim('   💡 Move this file to another machine (USB, cloud, chat…) and run:'));
-  console.log(`      ${c.green(`ia-index import ${path.basename(outFile)}`)}  ${c.dim('(inside the target project folder)')}`);
+  console.log(
+    `      ${c.green(`ia-index import ${path.basename(outFile)}`)}  ${c.dim('(inside the target project folder)')}`,
+  );
   console.log('');
 }
 
@@ -848,7 +1080,9 @@ function cmdExport(root, opts = {}) {
 function cmdImport(file, targetRoot, opts = {}) {
   // --- validations (security first!) ---
   if (!file) {
-    console.error(`❌ Missing file. Usage: ${c.green('ia-index import <file.ia-index.json> [target-folder]')}`);
+    console.error(
+      `❌ Missing file. Usage: ${c.green('ia-index import <file.ia-index.json> [target-folder]')}`,
+    );
     return false;
   }
   const absFile = path.resolve(file);
@@ -857,13 +1091,16 @@ function cmdImport(file, targetRoot, opts = {}) {
     return false;
   }
   if (fs.statSync(absFile).size > MAX_IMPORT_SIZE) {
-    console.error(`❌ File too large (max ${MAX_IMPORT_SIZE / 1024 / 1024}MB). This doesn't look like a valid export.`);
+    console.error(
+      `❌ File too large (max ${MAX_IMPORT_SIZE / 1024 / 1024}MB). This doesn't look like a valid export.`,
+    );
     return false;
   }
 
   let payload;
-  try { payload = JSON.parse(fs.readFileSync(absFile, 'utf8')); }
-  catch {
+  try {
+    payload = JSON.parse(fs.readFileSync(absFile, 'utf8'));
+  } catch {
     console.error('❌ Not a valid JSON file. Expected an export created with: ia-index export');
     return false;
   }
@@ -872,7 +1109,11 @@ function cmdImport(file, targetRoot, opts = {}) {
     console.error('❌ Unrecognized format. Expected an export created with: ia-index export');
     return false;
   }
-  if (typeof payload.index !== 'string' || !payload.index.trim() || payload.index.length > MAX_IMPORT_SIZE) {
+  if (
+    typeof payload.index !== 'string' ||
+    !payload.index.trim() ||
+    payload.index.length > MAX_IMPORT_SIZE
+  ) {
     console.error('❌ The export file has no valid index content.');
     return false;
   }
@@ -884,7 +1125,7 @@ function cmdImport(file, targetRoot, opts = {}) {
   const outFile = path.join(outDir, 'PROJECT-INDEX.md');
   fs.writeFileSync(outFile, payload.index, 'utf8');
 
-  const stats = (payload.stats && typeof payload.stats === 'object') ? payload.stats : {};
+  const stats = payload.stats && typeof payload.stats === 'object' ? payload.stats : {};
   const registry = loadRegistry();
   registry[targetRoot] = {
     name: projectName,
@@ -892,7 +1133,9 @@ function cmdImport(file, targetRoot, opts = {}) {
     indexedAt: new Date().toISOString(),
     files: Number.isFinite(stats.files) ? stats.files : null,
     sourceKB: Number.isFinite(stats.sourceKB) ? stats.sourceKB : null,
-    indexKB: Number.isFinite(stats.indexKB) ? stats.indexKB : +(Buffer.byteLength(payload.index, 'utf8') / 1024).toFixed(1),
+    indexKB: Number.isFinite(stats.indexKB)
+      ? stats.indexKB
+      : +(Buffer.byteLength(payload.index, 'utf8') / 1024).toFixed(1),
     reduction: typeof stats.reduction === 'string' ? stats.reduction.slice(0, 10) : '?',
     imported: {
       from: String(payload.project || 'unknown').slice(0, 200),
@@ -906,14 +1149,20 @@ function cmdImport(file, targetRoot, opts = {}) {
   ensureGitignore(targetRoot);
 
   console.log('');
-  console.log(c.green(c.bold(`📥 Import complete! Welcome aboard, "${registry[targetRoot].imported.from}" ✨`)));
+  console.log(
+    c.green(
+      c.bold(`📥 Import complete! Welcome aboard, "${registry[targetRoot].imported.from}" ✨`),
+    ),
+  );
   console.log('');
   console.log(`   📄 Index:    ${c.cyan(outFile)}`);
   console.log(`   📍 Project:  ${projectName}`);
   if (touched.length) console.log(`   🤖 AI configs ready: ${c.cyan(touched.join(' · '))} ✅`);
   console.log('');
   console.log(c.dim('   💡 Your AI assistant on THIS machine can now read the index.'));
-  console.log(c.dim('   🔄 Have the source code here too? Run `ia-index update` to regenerate it locally.'));
+  console.log(
+    c.dim('   🔄 Have the source code here too? Run `ia-index update` to regenerate it locally.'),
+  );
   console.log('');
   return true;
 }
@@ -932,11 +1181,22 @@ async function cmdRemove(root, opts = {}) {
     return;
   }
 
-  const proceed = await confirm(`🗑️  Delete the index of ${c.cyan(`"${projectName}"`)} (folder .ia-index/ + registry entry + CLAUDE.md block)?`, opts.yes);
-  if (!proceed) { console.log(`👌 No worries — nothing was touched. ${c.dim('(Use --yes to skip this prompt.)')}`); return; }
+  const proceed = await confirm(
+    `🗑️  Delete the index of ${c.cyan(`"${projectName}"`)} (folder .ia-index/ + registry entry + CLAUDE.md block)?`,
+    opts.yes,
+  );
+  if (!proceed) {
+    console.log(
+      `👌 No worries — nothing was touched. ${c.dim('(Use --yes to skip this prompt.)')}`,
+    );
+    return;
+  }
 
   if (hasIndex) fs.rmSync(indexDir, { recursive: true, force: true });
-  if (hasEntry) { delete registry[root]; saveRegistry(registry); }
+  if (hasEntry) {
+    delete registry[root];
+    saveRegistry(registry);
+  }
   stripAiConfigs(root);
 
   console.log(c.green(`✅ Index of "${projectName}" removed. Bye bye index! 👋`));
@@ -955,16 +1215,34 @@ async function cmdClean(opts = {}) {
   }
 
   console.log('');
-  console.log(c.yellow(c.bold('🧹 Heads up! This will clear the global memory (registry of indexed projects):')));
+  console.log(
+    c.yellow(
+      c.bold('🧹 Heads up! This will clear the global memory (registry of indexed projects):'),
+    ),
+  );
   console.log('');
-  for (const p of Object.values(registry)) console.log(`   📦 ${c.cyan(p.name)}  ${c.dim(`(${p.path})`)}`);
+  for (const p of Object.values(registry))
+    console.log(`   📦 ${c.cyan(p.name)}  ${c.dim(`(${p.path})`)}`);
   console.log('');
-  if (opts.all) console.log(c.red('   ⚠️  --all: each project\'s .ia-index/ folder and CLAUDE.md block will be DELETED too.'));
-  else console.log(c.dim('   💡 Each project\'s .ia-index/ folder stays on disk. Add --all to delete those too.'));
+  if (opts.all)
+    console.log(
+      c.red(
+        "   ⚠️  --all: each project's .ia-index/ folder and CLAUDE.md block will be DELETED too.",
+      ),
+    );
+  else
+    console.log(
+      c.dim("   💡 Each project's .ia-index/ folder stays on disk. Add --all to delete those too."),
+    );
   console.log('');
 
   const proceed = await confirm('Proceed?', opts.yes);
-  if (!proceed) { console.log(`👌 No worries — nothing was touched. ${c.dim('(Use --yes to skip this prompt.)')}`); return; }
+  if (!proceed) {
+    console.log(
+      `👌 No worries — nothing was touched. ${c.dim('(Use --yes to skip this prompt.)')}`,
+    );
+    return;
+  }
 
   if (opts.all) {
     for (const p of Object.values(registry)) {
@@ -972,7 +1250,9 @@ async function cmdClean(opts = {}) {
         fs.rmSync(path.join(p.path, '.ia-index'), { recursive: true, force: true });
         stripAiConfigs(p.path);
         console.log(`   🗑️  ${p.name}: .ia-index/ deleted ✅`);
-      } catch { console.log(c.yellow(`   ⚠️  ${p.name}: could not delete .ia-index/`)); }
+      } catch {
+        console.log(c.yellow(`   ⚠️  ${p.name}: could not delete .ia-index/`));
+      }
     }
   }
 
@@ -990,19 +1270,30 @@ async function menu() {
     const indexed = fs.existsSync(path.join(cwd, '.ia-index', 'PROJECT-INDEX.md'));
 
     console.log('');
-    console.log(c.bold(c.cyan(`⚡ IA Project Indexer v${VERSION}`)) + c.dim(' — make your AI assistant cheaper and faster 💰'));
+    console.log(
+      c.bold(c.cyan(`⚡ IA Project Indexer v${VERSION}`)) +
+        c.dim(' — make your AI assistant cheaper and faster 💰'),
+    );
     console.log('');
-    console.log(`   📂 Current project: ${c.bold(projectName)} ${indexed ? c.green('✅ indexed') : c.yellow('📭 not indexed yet')}`);
+    console.log(
+      `   📂 Current project: ${c.bold(projectName)} ${indexed ? c.green('✅ indexed') : c.yellow('📭 not indexed yet')}`,
+    );
     console.log('');
     console.log(c.bold('   What would you like to do?'));
     console.log('');
-    console.log(`   ${c.cyan('1')}) 📦 Index / update this project  ${c.dim('(takes <1 second ⚡)')}`);
+    console.log(
+      `   ${c.cyan('1')}) 📦 Index / update this project  ${c.dim('(takes <1 second ⚡)')}`,
+    );
     console.log(`   ${c.cyan('2')}) 📊 Check status of this project`);
     console.log(`   ${c.cyan('3')}) 📋 List all my indexed projects`);
     console.log(`   ${c.cyan('4')}) 📈 Show my global token savings`);
-    console.log(`   ${c.cyan('5')}) 📤 Export this project's index  ${c.dim('(share it with another machine)')}`);
+    console.log(
+      `   ${c.cyan('5')}) 📤 Export this project's index  ${c.dim('(share it with another machine)')}`,
+    );
     console.log(`   ${c.cyan('6')}) 📥 Import an exported index`);
-    console.log(`   ${c.cyan('7')}) 🪝 Auto-update on every git commit  ${c.dim('(pre-commit hook)')}`);
+    console.log(
+      `   ${c.cyan('7')}) 🪝 Auto-update on every git commit  ${c.dim('(pre-commit hook)')}`,
+    );
     console.log(`   ${c.cyan('8')}) 🗑️  Remove this project's index`);
     console.log(`   ${c.cyan('9')}) 🧹 Clean global memory`);
     console.log(`   ${c.cyan('0')}) 👋 Exit`);
@@ -1017,22 +1308,43 @@ async function menu() {
     }
 
     switch (choice) {
-      case '1': cmdIndex(cwd); break;
-      case '2': cmdStatus(cwd); break;
-      case '3': cmdList(); break;
-      case '4': cmdStats(); break;
-      case '5': cmdExport(cwd); break;
+      case '1':
+        cmdIndex(cwd);
+        break;
+      case '2':
+        cmdStatus(cwd);
+        break;
+      case '3':
+        cmdList();
+        break;
+      case '4':
+        cmdStats();
+        break;
+      case '5':
+        cmdExport(cwd);
+        break;
       case '6': {
         // strip quotes — Windows "Copy as path" pastes the path wrapped in them
-        const file = (await ask('📥 Path to the .ia-index.json file: ')).replace(/^["']+|["']+$/g, '');
+        const file = (await ask('📥 Path to the .ia-index.json file: ')).replace(
+          /^["']+|["']+$/g,
+          '',
+        );
         if (file) cmdImport(file, cwd);
         else console.log('👌 No file given — nothing was imported.');
         break;
       }
-      case '7': cmdHookInstall(cwd); break;
-      case '8': await cmdRemove(cwd); break;
-      case '9': await cmdClean(); break;
-      default: console.log(c.yellow(`🤔 "${choice}" is not an option — pick a number from the menu.`)); break;
+      case '7':
+        cmdHookInstall(cwd);
+        break;
+      case '8':
+        await cmdRemove(cwd);
+        break;
+      case '9':
+        await cmdClean();
+        break;
+      default:
+        console.log(c.yellow(`🤔 "${choice}" is not an option — pick a number from the menu.`));
+        break;
     }
 
     // back to the menu after every action — Enter continues, q quits
@@ -1093,15 +1405,35 @@ function help() {
 
 // ------------------------------------------------------------------- main
 
-const COMMANDS = new Set(['index', 'update', 'status', 'list', 'stats', 'export', 'import', 'hook', 'remove', 'delete', 'rm', 'clean', 'help']);
+const COMMANDS = new Set([
+  'index',
+  'update',
+  'status',
+  'list',
+  'stats',
+  'export',
+  'import',
+  'hook',
+  'remove',
+  'delete',
+  'rm',
+  'clean',
+  'help',
+]);
 
 async function main() {
   const raw = process.argv.slice(2);
   const args = [];
   let outFile = null;
   for (let i = 0; i < raw.length; i++) {
-    if (raw[i] === '--out' || raw[i] === '-o') { outFile = raw[++i]; continue; }
-    if (raw[i].startsWith('--out=')) { outFile = raw[i].slice(6); continue; }
+    if (raw[i] === '--out' || raw[i] === '-o') {
+      outFile = raw[++i];
+      continue;
+    }
+    if (raw[i].startsWith('--out=')) {
+      outFile = raw[i].slice(6);
+      continue;
+    }
     args.push(raw[i]);
   }
 
@@ -1117,21 +1449,43 @@ async function main() {
     out: outFile,
   };
 
-  if (flags.has('--help') || flags.has('-h')) { help(); return; }
-  if (flags.has('--version') || flags.has('-v')) { console.log('ia-index ' + VERSION); return; }
+  if (flags.has('--help') || flags.has('-h')) {
+    help();
+    return;
+  }
+  if (flags.has('--version') || flags.has('-v')) {
+    console.log('ia-index ' + VERSION);
+    return;
+  }
 
   const first = positional[0];
   const cmd = COMMANDS.has(first) ? first : null;
 
   if (!cmd && !first) {
-    if (process.stdin.isTTY) { await menu(); } else { help(); }
+    if (process.stdin.isTTY) {
+      await menu();
+    } else {
+      help();
+    }
     return;
   }
 
-  if (cmd === 'help') { help(); return; }
-  if (cmd === 'list') { cmdList(); return; }
-  if (cmd === 'stats') { cmdStats(); return; }
-  if (cmd === 'clean') { await cmdClean(opts); return; }
+  if (cmd === 'help') {
+    help();
+    return;
+  }
+  if (cmd === 'list') {
+    cmdList();
+    return;
+  }
+  if (cmd === 'stats') {
+    cmdStats();
+    return;
+  }
+  if (cmd === 'clean') {
+    await cmdClean(opts);
+    return;
+  }
   if (cmd === 'import') {
     const target = path.resolve(positional[2] || '.');
     if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
@@ -1144,7 +1498,9 @@ async function main() {
   if (cmd === 'hook') {
     const HOOK_ACTIONS = new Set(['install', 'remove', 'uninstall']);
     const action = HOOK_ACTIONS.has(positional[1]) ? positional[1] : 'install';
-    const target = path.resolve(HOOK_ACTIONS.has(positional[1]) ? (positional[2] || '.') : (positional[1] || '.'));
+    const target = path.resolve(
+      HOOK_ACTIONS.has(positional[1]) ? positional[2] || '.' : positional[1] || '.',
+    );
     if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
       console.error('❌ Invalid path: ' + target);
       process.exit(1);
@@ -1155,24 +1511,45 @@ async function main() {
   }
 
   // `ia-index <path>` (no subcommand) still indexes that path — backward compatible.
-  const target = path.resolve(cmd ? (positional[1] || '.') : (first || '.'));
+  const target = path.resolve(cmd ? positional[1] || '.' : first || '.');
   if (!fs.existsSync(target) || !fs.statSync(target).isDirectory()) {
     console.error('❌ Invalid path: ' + target);
     process.exit(1);
   }
 
-  if (cmd === 'status') { cmdStatus(target); return; }
-  if (cmd === 'export') { cmdExport(target, opts); return; }
-  if (cmd === 'remove' || cmd === 'delete' || cmd === 'rm') { await cmdRemove(target, opts); return; }
+  if (cmd === 'status') {
+    cmdStatus(target);
+    return;
+  }
+  if (cmd === 'export') {
+    cmdExport(target, opts);
+    return;
+  }
+  if (cmd === 'remove' || cmd === 'delete' || cmd === 'rm') {
+    await cmdRemove(target, opts);
+    return;
+  }
   // index / update / bare path
   cmdIndex(target, opts);
 }
 
 if (require.main === module) {
-  main().catch(err => { console.error('❌ ' + err.message); process.exit(1); });
+  main().catch(err => {
+    console.error('❌ ' + err.message);
+    process.exit(1);
+  });
 } else {
   module.exports = {
-    extractJsTs, extractPy, extractGo, extractJavaCs, extractPhp, extractRuby,
-    extractorFor, formatSymbols, walk, loadGitignore, isGitignored,
+    extractJsTs,
+    extractPy,
+    extractGo,
+    extractJavaCs,
+    extractPhp,
+    extractRuby,
+    extractorFor,
+    formatSymbols,
+    walk,
+    loadGitignore,
+    isGitignored,
   };
 }
