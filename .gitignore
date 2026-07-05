@@ -49,7 +49,8 @@ jspm_packages/
 .env.*
 !.env.example
 
-# ai-index — compact project index, regenerate with `ai-index`
+# IA Project Indexer — compact project index, regenerate with `ia-index`
+.ia-index/
 .ai-index/
 
 # OS files
