@@ -12,7 +12,7 @@ const assert = require('assert');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { execFileSync } = require('child_process');
+const { spawnSync } = require('child_process');
 
 const CLI = path.join(__dirname, '..', 'index.js');
 const { extractJsTs, extractPy, extractGo, extractJavaCs, extractPhp, extractRuby } = require('..');
@@ -21,8 +21,13 @@ const { extractJsTs, extractPy, extractGo, extractJavaCs, extractPhp, extractRub
 const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-index-home-'));
 const ENV = { ...process.env, IA_INDEX_HOME: tempHome };
 
+// spawnSync with piped stderr keeps the test output clean: expected error
+// messages from negative tests never leak to the console (they used to look
+// like failures during `npm publish`). Failures throw with stderr attached.
 function cli(args) {
-  return execFileSync('node', [CLI, ...args], { encoding: 'utf8', env: ENV });
+  const r = spawnSync('node', [CLI, ...args], { encoding: 'utf8', env: ENV });
+  if (r.status !== 0) throw new Error((r.stderr || '') + (r.stdout || ''));
+  return r.stdout;
 }
 
 let passed = 0;
@@ -413,6 +418,50 @@ ok('`remove` preserves user content in CLAUDE.md', () => {
   const claude = fs.readFileSync(path.join(fixture, 'CLAUDE.md'), 'utf8');
   assert.ok(claude.includes('Always use TypeScript.'));
   assert.ok(!claude.includes('ai-index:start'));
+});
+
+// ---- edge cases & hardening ----
+
+ok('refuses to index the home folder (safety net)', () => {
+  assert.throws(() => cli(['index', os.homedir()]), /Refusing to index/);
+});
+
+ok('two projects with the same folder name never collide in the registry', () => {
+  const parentA = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-index-a-'));
+  const parentB = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-index-b-'));
+  const projA = path.join(parentA, 'my-api');
+  const projB = path.join(parentB, 'my-api');
+  fs.mkdirSync(projA); fs.mkdirSync(projB);
+  fs.writeFileSync(path.join(projA, 'a.js'), 'export function fromA() {}\n');
+  fs.writeFileSync(path.join(projB, 'b.js'), 'export function fromB() {}\n');
+  cli(['index', projA, '--no-claude']);
+  cli(['index', projB, '--no-claude']);
+  const out = cli(['list']);
+  assert.ok(out.includes(parentA.replace(/\\/g, '\\')) || out.includes(projA));
+  assert.ok(out.includes(projB));
+  fs.rmSync(parentA, { recursive: true, force: true });
+  fs.rmSync(parentB, { recursive: true, force: true });
+});
+
+ok('`export --out` creates missing parent folders', () => {
+  const deepOut = path.join(tempHome, 'new', 'deep', 'folder', 'out.ia-index.json');
+  cli(['export', fixture, '--no-claude', '--out', deepOut]);
+  assert.ok(fs.existsSync(deepOut));
+});
+
+ok('malformed .gitignore patterns never crash the indexer', () => {
+  write('.gitignore', 'secret-folder/\n[[[*bad(regex\n');
+  const out = cli(['index', fixture, '--no-claude']);
+  assert.match(out, /Project indexed/);
+  write('.gitignore', 'secret-folder/\n'); // restore
+});
+
+ok('empty and unreadable files are handled gracefully', () => {
+  write('src/empty.ts', '');
+  const out = cli(['index', fixture, '--no-claude']);
+  assert.match(out, /Project indexed/);
+  const idx = fs.readFileSync(path.join(fixture, '.ia-index', 'PROJECT-INDEX.md'), 'utf8');
+  assert.ok(idx.includes('empty.ts'));
 });
 
 // ---- quiet / if-changed / legacy migration ----

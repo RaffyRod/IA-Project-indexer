@@ -8,7 +8,7 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node >= 16](https://img.shields.io/badge/node-%3E%3D16-brightgreen.svg)](https://nodejs.org)
 [![dependencies: 0](https://img.shields.io/badge/dependencies-0-success.svg)](package.json)
-[![tests: 54](https://img.shields.io/badge/tests-54%20passing-success.svg)](test/test.js)
+[![tests: 59](https://img.shields.io/badge/tests-59%20passing-success.svg)](test/test.js)
 
 **Works with Claude · ChatGPT · Gemini · Cursor · Copilot · any AI assistant**
 
@@ -55,6 +55,23 @@ ia-index index        # done. < 1 second ⚡
 
 That's it. Claude Code, Codex and friends now read the index automatically.
 Prefer menus? Just run `ia-index` with no arguments. 🧭
+
+## 💬 What can the AI answer instantly?
+
+Real Q&A on a real indexed project — every answer comes from the ~850-token
+index, **without opening a single source file**:
+
+| You ask | The AI answers instantly |
+|---|---|
+| *"Where is the refund logic?"* | `src/api/TransactionApi.ts` → method `refund` |
+| *"Where are credentials loaded?"* | `src/config/ConfigLoader.ts` → `getCredentials` |
+| *"Which classes extend BaseApi?"* | All 6, each with its methods |
+| *"How do I run only smoke tests?"* | `npm run test:smoke` |
+| *"Where do I add a new endpoint?"* | `src/api/` — follow the `BaseApi` pattern |
+
+For *"how does X work inside?"* the AI opens **exactly one file** (the index
+tells it which) instead of exploring — still a fraction of the cost. And for
+plain-text searches it falls back to grep, **never worse** than before.
 
 ## 🪝 Set-and-forget: auto-update on every commit
 
@@ -170,12 +187,13 @@ commit it so the whole team shares it.
 ## 🧪 Tests
 
 ```bash
-npm test   # 54 assertions, zero test dependencies
+npm test   # 59 assertions, zero test dependencies
 ```
 
 Covers signature extraction in all 8 languages, folder exclusion, `.gitignore`
-support, every CLI command, the pre-commit hook (git + Husky), import
-validation, legacy migration and the multi-assistant config integration.
+support (including malformed patterns), every CLI command, the pre-commit hook
+(git + Husky), import validation, legacy migration, registry collision safety,
+drive-root protection and the multi-assistant config integration.
 
 ## 📜 License
 

@@ -96,12 +96,25 @@ async function confirm(question, autoYes) {
   return /^y(es)?$/i.test(answer);
 }
 
+// Registry entries are keyed by the project's absolute path (two folders with
+// the same name must never overwrite each other). Older registries were keyed
+// by folder name — normalize keeps both formats working.
+function normalizeRegistry(raw) {
+  const out = {};
+  for (const [key, val] of Object.entries(raw)) {
+    if (!val || typeof val !== 'object') continue;
+    const p = val.path || key;
+    out[p] = { name: val.name || path.basename(p), ...val, path: p };
+  }
+  return out;
+}
+
 function loadRegistry() {
-  try { return JSON.parse(fs.readFileSync(REGISTRY, 'utf8')); } catch { /* try legacy */ }
+  try { return normalizeRegistry(JSON.parse(fs.readFileSync(REGISTRY, 'utf8'))); } catch { /* try legacy */ }
   // one-time migration from the pre-1.4.0 home (~/.ai-index)
   if (!process.env.IA_INDEX_HOME) {
     try {
-      const legacy = JSON.parse(fs.readFileSync(path.join(LEGACY_HOME, 'registry.json'), 'utf8'));
+      const legacy = normalizeRegistry(JSON.parse(fs.readFileSync(path.join(LEGACY_HOME, 'registry.json'), 'utf8')));
       saveRegistry(legacy);
       fs.rmSync(LEGACY_HOME, { recursive: true, force: true });
       return legacy;
@@ -337,21 +350,25 @@ function formatSymbols(symbols) {
 
 // ------------------------------------------------------------------- walker
 
+const MAX_DEPTH = 30; // guards against pathological trees and symlink cycles
+
 function walk(root, gitignore) {
   const files = [];
   let totalBytes = 0;
 
-  function visit(dir, rel) {
+  function visit(dir, rel, depth) {
+    if (depth > MAX_DEPTH) return;
     let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); }
     catch { return; }
 
     for (const e of entries) {
       const relPath = rel ? rel + '/' + e.name : e.name;
+      if (e.isSymbolicLink()) continue; // never follow links — avoids cycles and surprises
       if (e.isDirectory()) {
         if (IGNORE_DIRS.has(e.name) || e.name.startsWith('.')) continue;
         if (isGitignored(relPath, e.name, gitignore)) continue;
-        visit(path.join(dir, e.name), relPath);
+        visit(path.join(dir, e.name), relPath, depth + 1);
       } else if (e.isFile()) {
         if (IGNORE_FILES.has(e.name)) continue;
         if (isGitignored(relPath, e.name, gitignore)) continue;
@@ -365,13 +382,20 @@ function walk(root, gitignore) {
     }
   }
 
-  visit(root, '');
+  visit(root, '', 0);
   return { files, totalBytes };
 }
 
 // ---------------------------------------------------------- command: index
 
 function cmdIndex(root, opts = {}) {
+  // safety net: indexing a drive root or the home folder would scan everything
+  if (root === path.parse(root).root || root === os.homedir()) {
+    console.error(`🛑 Refusing to index ${root} — that would scan your entire ${root === os.homedir() ? 'home folder' : 'drive'}.`);
+    console.error('   👉 cd into a specific project folder and run ia-index there.');
+    process.exit(1);
+  }
+
   const projectName = path.basename(root);
   const gitignore = loadGitignore(root);
   const { files, totalBytes } = walk(root, gitignore);
@@ -464,14 +488,15 @@ function cmdIndex(root, opts = {}) {
   const reduction = Math.max(0, Math.round((1 - indexBytes / totalBytes) * 100));
 
   const registry = loadRegistry();
-  registry[projectName] = {
+  registry[root] = {
+    name: projectName,
     path: root,
     indexedAt: new Date().toISOString(),
     files: files.length,
     sourceKB: +(totalBytes / 1024).toFixed(1),
     indexKB: +(indexBytes / 1024).toFixed(1),
     reduction: reduction + '%',
-    timesIndexed: ((registry[projectName] && registry[projectName].timesIndexed) || 0) + 1,
+    timesIndexed: ((registry[root] && registry[root].timesIndexed) || 0) + 1,
   };
   saveRegistry(registry);
 
@@ -498,6 +523,11 @@ function cmdIndex(root, opts = {}) {
   console.log(c.dim('   💡 Tip: your AI assistant now reads .ia-index/PROJECT-INDEX.md'));
   console.log(c.dim('      instead of exploring the whole codebase.'));
   console.log(c.dim('   🔄 Code changed a lot? Just run: ia-index update'));
+  if (indexBytes > 150 * 1024) {
+    console.log('');
+    console.log(c.yellow('   ⚠️  Your index is quite large (>150 KB). Consider adding build output'));
+    console.log(c.yellow('      or generated folders to .gitignore so they are excluded.'));
+  }
   console.log('');
 }
 
@@ -570,7 +600,7 @@ function cmdStatus(root) {
   const projectName = path.basename(root);
   const indexFile = path.join(root, '.ia-index', 'PROJECT-INDEX.md');
   const registry = loadRegistry();
-  const entry = registry[projectName];
+  const entry = registry[root];
 
   console.log('');
   console.log(c.bold(`📊 Status — ${c.cyan(projectName)}`));
@@ -619,9 +649,8 @@ function cmdList() {
   console.log('');
   console.log(c.bold(`📦 Your indexed projects (${names.length}):`));
   console.log('');
-  for (const name of names) {
-    const p = registry[name];
-    console.log(`   ⚡ ${c.cyan(c.bold(name))}${p.imported ? ' 📥' : ''}`);
+  for (const p of Object.values(registry)) {
+    console.log(`   ⚡ ${c.cyan(c.bold(p.name))}${p.imported ? ' 📥' : ''}`);
     console.log(`      📍 Path:     ${p.path}`);
     console.log(`      🕒 Indexed:  ${String(p.indexedAt).slice(0, 16).replace('T', ' ')}`);
     console.log(`      📊 Files:    ${p.files ?? '?'} · source ${p.sourceKB ?? '?'} KB → index ${p.indexKB ?? '?'} KB ${c.green(`(${p.reduction ?? '?'} fewer tokens 💰)`)}`);
@@ -759,7 +788,7 @@ function cmdExport(root, opts = {}) {
   }
 
   const registry = loadRegistry();
-  const entry = registry[projectName] || null;
+  const entry = registry[root] || null;
 
   const payload = {
     format: EXPORT_FORMAT,
@@ -775,6 +804,7 @@ function cmdExport(root, opts = {}) {
   };
 
   const outFile = path.resolve(opts.out || `${projectName}.ia-index.json`);
+  fs.mkdirSync(path.dirname(outFile), { recursive: true }); // --out may point into a new folder
   fs.writeFileSync(outFile, JSON.stringify(payload, null, 2), 'utf8');
 
   console.log('');
@@ -832,7 +862,8 @@ function cmdImport(file, targetRoot, opts = {}) {
 
   const stats = (payload.stats && typeof payload.stats === 'object') ? payload.stats : {};
   const registry = loadRegistry();
-  registry[projectName] = {
+  registry[targetRoot] = {
+    name: projectName,
     path: targetRoot,
     indexedAt: new Date().toISOString(),
     files: Number.isFinite(stats.files) ? stats.files : null,
@@ -850,7 +881,7 @@ function cmdImport(file, targetRoot, opts = {}) {
   const touched = opts.noClaude ? [] : updateAiConfigs(targetRoot);
 
   console.log('');
-  console.log(c.green(c.bold(`📥 Import complete! Welcome aboard, "${registry[projectName].imported.from}" ✨`)));
+  console.log(c.green(c.bold(`📥 Import complete! Welcome aboard, "${registry[targetRoot].imported.from}" ✨`)));
   console.log('');
   console.log(`   📄 Index:    ${c.cyan(outFile)}`);
   console.log(`   📍 Project:  ${projectName}`);
@@ -869,7 +900,7 @@ async function cmdRemove(root, opts = {}) {
   const indexDir = path.join(root, '.ia-index');
   const registry = loadRegistry();
   const hasIndex = fs.existsSync(indexDir);
-  const hasEntry = !!registry[projectName];
+  const hasEntry = !!registry[root];
 
   if (!hasIndex && !hasEntry) {
     console.log(`📭 Nothing to remove — "${projectName}" is not indexed. All clean! ✨`);
@@ -880,7 +911,7 @@ async function cmdRemove(root, opts = {}) {
   if (!proceed) { console.log(`👌 No worries — nothing was touched. ${c.dim('(Use --yes to skip this prompt.)')}`); return; }
 
   if (hasIndex) fs.rmSync(indexDir, { recursive: true, force: true });
-  if (hasEntry) { delete registry[projectName]; saveRegistry(registry); }
+  if (hasEntry) { delete registry[root]; saveRegistry(registry); }
   stripAiConfigs(root);
 
   console.log(c.green(`✅ Index of "${projectName}" removed. Bye bye index! 👋`));
@@ -901,7 +932,7 @@ async function cmdClean(opts = {}) {
   console.log('');
   console.log(c.yellow(c.bold('🧹 Heads up! This will clear the global memory (registry of indexed projects):')));
   console.log('');
-  for (const name of names) console.log(`   📦 ${c.cyan(name)}  ${c.dim(`(${registry[name].path})`)}`);
+  for (const p of Object.values(registry)) console.log(`   📦 ${c.cyan(p.name)}  ${c.dim(`(${p.path})`)}`);
   console.log('');
   if (opts.all) console.log(c.red('   ⚠️  --all: each project\'s .ia-index/ folder and CLAUDE.md block will be DELETED too.'));
   else console.log(c.dim('   💡 Each project\'s .ia-index/ folder stays on disk. Add --all to delete those too.'));
@@ -911,13 +942,12 @@ async function cmdClean(opts = {}) {
   if (!proceed) { console.log(`👌 No worries — nothing was touched. ${c.dim('(Use --yes to skip this prompt.)')}`); return; }
 
   if (opts.all) {
-    for (const name of names) {
-      const projectPath = registry[name].path;
+    for (const p of Object.values(registry)) {
       try {
-        fs.rmSync(path.join(projectPath, '.ia-index'), { recursive: true, force: true });
-        stripAiConfigs(projectPath);
-        console.log(`   🗑️  ${name}: .ia-index/ deleted ✅`);
-      } catch { console.log(c.yellow(`   ⚠️  ${name}: could not delete .ia-index/`)); }
+        fs.rmSync(path.join(p.path, '.ia-index'), { recursive: true, force: true });
+        stripAiConfigs(p.path);
+        console.log(`   🗑️  ${p.name}: .ia-index/ deleted ✅`);
+      } catch { console.log(c.yellow(`   ⚠️  ${p.name}: could not delete .ia-index/`)); }
     }
   }
 
@@ -968,7 +998,8 @@ async function menu() {
       case '4': cmdStats(); break;
       case '5': cmdExport(cwd); break;
       case '6': {
-        const file = await ask('📥 Path to the .ia-index.json file: ');
+        // strip quotes — Windows "Copy as path" pastes the path wrapped in them
+        const file = (await ask('📥 Path to the .ia-index.json file: ')).replace(/^["']+|["']+$/g, '');
         if (file) cmdImport(file, cwd);
         else console.log('👌 No file given — nothing was imported.');
         break;
