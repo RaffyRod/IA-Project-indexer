@@ -232,6 +232,64 @@ ok('`list` shows the fixture project', () => {
   assert.ok(out.includes(fixtureName));
 });
 
+// ---- export / import ----
+
+const exportFile = path.join(tempHome, 'exported.ai-index.json');
+
+ok('`export --out` creates a portable JSON file with the index', () => {
+  const out = cli(['export', fixture, '--out', exportFile]);
+  assert.match(out, /Export ready/);
+  const payload = JSON.parse(fs.readFileSync(exportFile, 'utf8'));
+  assert.strictEqual(payload.format, 'ia-project-indexer/1');
+  assert.strictEqual(payload.project, fixtureName);
+  assert.ok(payload.index.includes('class BaseApi'));
+});
+
+ok('`export` auto-indexes a project that has no index yet', () => {
+  const freshProject = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-index-fresh-'));
+  fs.writeFileSync(path.join(freshProject, 'app.js'), 'export function hello() {}\n');
+  const out = cli(['export', freshProject, '--no-claude', '--out', path.join(tempHome, 'fresh.json')]);
+  assert.match(out, /indexing it first/);
+  assert.match(out, /Export ready/);
+  fs.rmSync(freshProject, { recursive: true, force: true });
+});
+
+const importTarget = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-index-import-'));
+const importName = path.basename(importTarget);
+
+ok('`import` loads an exported index on another machine (fresh folder)', () => {
+  const out = cli(['import', exportFile, importTarget]);
+  assert.match(out, /Import complete/);
+  const imported = fs.readFileSync(path.join(importTarget, '.ai-index', 'PROJECT-INDEX.md'), 'utf8');
+  assert.ok(imported.includes('class BaseApi'));
+  const claude = fs.readFileSync(path.join(importTarget, 'CLAUDE.md'), 'utf8');
+  assert.match(claude, /PROJECT-INDEX\.md/);
+});
+
+ok('imported project appears in `list` marked as imported', () => {
+  const out = cli(['list']);
+  assert.ok(out.includes(importName));
+  assert.ok(out.includes('📥'));
+});
+
+ok('`import` rejects a non-JSON file', () => {
+  const badFile = path.join(tempHome, 'bad.json');
+  fs.writeFileSync(badFile, 'this is not json {{{', 'utf8');
+  assert.throws(() => cli(['import', badFile, importTarget]), /Not a valid JSON/);
+});
+
+ok('`import` rejects JSON with an unrecognized format', () => {
+  const wrongFile = path.join(tempHome, 'wrong.json');
+  fs.writeFileSync(wrongFile, JSON.stringify({ format: 'something-else', index: '# hi' }), 'utf8');
+  assert.throws(() => cli(['import', wrongFile, importTarget]), /Unrecognized format/);
+});
+
+ok('`import` rejects a missing file with a friendly error', () => {
+  assert.throws(() => cli(['import', path.join(tempHome, 'ghost.json'), importTarget]), /File not found/);
+});
+
+fs.rmSync(importTarget, { recursive: true, force: true });
+
 // ---- remove ----
 
 ok('`remove --yes` deletes index, registry entry and CLAUDE.md block', () => {
@@ -276,7 +334,7 @@ ok('`clean --all --yes` also deletes project .ai-index folders', () => {
 
 ok('`help` lists every command', () => {
   const out = cli(['help']);
-  for (const word of ['index', 'update', 'status', 'list', 'remove', 'clean']) {
+  for (const word of ['index', 'update', 'status', 'list', 'export', 'import', 'remove', 'clean']) {
     assert.ok(out.includes(word), 'missing command in help: ' + word);
   }
 });

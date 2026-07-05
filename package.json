@@ -1,10 +1,10 @@
 {
   "name": "ia-project-indexer",
-  "version": "1.1.0",
-  "description": "Ultra-compact project indexer for LLMs — cut AI token usage by up to 99%. Works with Claude, ChatGPT, Gemini, Cursor and any AI assistant.",
+  "version": "1.2.0",
+  "description": "IA Project Indexer — ultra-compact codebase indexer for LLMs. Cut AI token usage by up to 99%. Generates one portable Markdown index your AI assistant reads instead of exploring your code. Works with Claude, ChatGPT, Gemini, Cursor, Copilot and any AI assistant.",
   "main": "index.js",
   "bin": {
-    "ai-index": "./index.js"
+    "ia-index": "./index.js"
   },
   "scripts": {
     "test": "node test/test.js"
@@ -23,18 +23,28 @@
     "node": ">=16"
   },
   "keywords": [
-    "llm",
     "ai",
+    "llm",
     "tokens",
     "token-reduction",
-    "indexer",
-    "codebase",
-    "context",
+    "token-saver",
+    "context-window",
+    "codebase-index",
+    "project-index",
+    "code-indexer",
+    "ai-context",
+    "ai-tools",
+    "developer-tools",
+    "cli",
     "claude",
+    "claude-code",
     "chatgpt",
+    "openai",
     "gemini",
     "cursor",
-    "copilot"
+    "copilot",
+    "anthropic",
+    "prompt-engineering"
   ],
   "files": [
     "index.js",
