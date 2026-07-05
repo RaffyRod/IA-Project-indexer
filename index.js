@@ -795,32 +795,32 @@ function cmdImport(file, targetRoot, opts = {}) {
   // --- validations (security first!) ---
   if (!file) {
     console.error(`❌ Missing file. Usage: ${c.green('ia-index import <file.ia-index.json> [target-folder]')}`);
-    process.exit(1);
+    return false;
   }
   const absFile = path.resolve(file);
   if (!fs.existsSync(absFile) || !fs.statSync(absFile).isFile()) {
     console.error('❌ File not found: ' + absFile);
-    process.exit(1);
+    return false;
   }
   if (fs.statSync(absFile).size > MAX_IMPORT_SIZE) {
     console.error(`❌ File too large (max ${MAX_IMPORT_SIZE / 1024 / 1024}MB). This doesn't look like a valid export.`);
-    process.exit(1);
+    return false;
   }
 
   let payload;
   try { payload = JSON.parse(fs.readFileSync(absFile, 'utf8')); }
   catch {
     console.error('❌ Not a valid JSON file. Expected an export created with: ia-index export');
-    process.exit(1);
+    return false;
   }
 
   if (!payload || typeof payload !== 'object' || payload.format !== EXPORT_FORMAT) {
     console.error('❌ Unrecognized format. Expected an export created with: ia-index export');
-    process.exit(1);
+    return false;
   }
   if (typeof payload.index !== 'string' || !payload.index.trim() || payload.index.length > MAX_IMPORT_SIZE) {
     console.error('❌ The export file has no valid index content.');
-    process.exit(1);
+    return false;
   }
 
   // --- write the index into the target project ---
@@ -859,6 +859,7 @@ function cmdImport(file, targetRoot, opts = {}) {
   console.log(c.dim('   💡 Your AI assistant on THIS machine can now read the index.'));
   console.log(c.dim('   🔄 Have the source code here too? Run `ia-index update` to regenerate it locally.'));
   console.log('');
+  return true;
 }
 
 // --------------------------------------------------------- command: remove
@@ -929,46 +930,61 @@ async function cmdClean(opts = {}) {
 async function menu() {
   const cwd = process.cwd();
   const projectName = path.basename(cwd);
-  const indexed = fs.existsSync(path.join(cwd, '.ia-index', 'PROJECT-INDEX.md'));
 
-  console.log('');
-  console.log(c.bold(c.cyan(`⚡ IA Project Indexer v${VERSION}`)) + c.dim(' — make your AI assistant cheaper and faster 💰'));
-  console.log('');
-  console.log(`   📂 Current project: ${c.bold(projectName)} ${indexed ? c.green('✅ indexed') : c.yellow('📭 not indexed yet')}`);
-  console.log('');
-  console.log(c.bold('   What would you like to do?'));
-  console.log('');
-  console.log(`   ${c.cyan('1')}) 📦 Index / update this project  ${c.dim('(takes <1 second ⚡)')}`);
-  console.log(`   ${c.cyan('2')}) 📊 Check status of this project`);
-  console.log(`   ${c.cyan('3')}) 📋 List all my indexed projects`);
-  console.log(`   ${c.cyan('4')}) 📈 Show my global token savings`);
-  console.log(`   ${c.cyan('5')}) 📤 Export this project's index  ${c.dim('(share it with another machine)')}`);
-  console.log(`   ${c.cyan('6')}) 📥 Import an exported index`);
-  console.log(`   ${c.cyan('7')}) 🪝 Auto-update on every git commit  ${c.dim('(pre-commit hook)')}`);
-  console.log(`   ${c.cyan('8')}) 🗑️  Remove this project's index`);
-  console.log(`   ${c.cyan('9')}) 🧹 Clean global memory`);
-  console.log(`   ${c.cyan('0')}) 👋 Exit`);
-  console.log('');
+  for (;;) {
+    const indexed = fs.existsSync(path.join(cwd, '.ia-index', 'PROJECT-INDEX.md'));
 
-  const choice = await ask(c.bold('Choose an option [0-9]: '));
-  console.log('');
+    console.log('');
+    console.log(c.bold(c.cyan(`⚡ IA Project Indexer v${VERSION}`)) + c.dim(' — make your AI assistant cheaper and faster 💰'));
+    console.log('');
+    console.log(`   📂 Current project: ${c.bold(projectName)} ${indexed ? c.green('✅ indexed') : c.yellow('📭 not indexed yet')}`);
+    console.log('');
+    console.log(c.bold('   What would you like to do?'));
+    console.log('');
+    console.log(`   ${c.cyan('1')}) 📦 Index / update this project  ${c.dim('(takes <1 second ⚡)')}`);
+    console.log(`   ${c.cyan('2')}) 📊 Check status of this project`);
+    console.log(`   ${c.cyan('3')}) 📋 List all my indexed projects`);
+    console.log(`   ${c.cyan('4')}) 📈 Show my global token savings`);
+    console.log(`   ${c.cyan('5')}) 📤 Export this project's index  ${c.dim('(share it with another machine)')}`);
+    console.log(`   ${c.cyan('6')}) 📥 Import an exported index`);
+    console.log(`   ${c.cyan('7')}) 🪝 Auto-update on every git commit  ${c.dim('(pre-commit hook)')}`);
+    console.log(`   ${c.cyan('8')}) 🗑️  Remove this project's index`);
+    console.log(`   ${c.cyan('9')}) 🧹 Clean global memory`);
+    console.log(`   ${c.cyan('0')}) 👋 Exit`);
+    console.log('');
 
-  switch (choice) {
-    case '1': cmdIndex(cwd); break;
-    case '2': cmdStatus(cwd); break;
-    case '3': cmdList(); break;
-    case '4': cmdStats(); break;
-    case '5': cmdExport(cwd); break;
-    case '6': {
-      const file = await ask('📥 Path to the .ia-index.json file: ');
-      if (file) cmdImport(file, cwd);
-      else console.log('👌 No file given — nothing was imported.');
-      break;
+    const choice = await ask(c.bold('Choose an option [0-9]: '));
+    console.log('');
+
+    if (choice === '0' || /^(q|quit|exit)$/i.test(choice)) {
+      console.log('👋 See you later! Happy coding! ✨');
+      return;
     }
-    case '7': cmdHookInstall(cwd); break;
-    case '8': await cmdRemove(cwd); break;
-    case '9': await cmdClean(); break;
-    case '0': default: console.log('👋 See you later! Happy coding! ✨'); break;
+
+    switch (choice) {
+      case '1': cmdIndex(cwd); break;
+      case '2': cmdStatus(cwd); break;
+      case '3': cmdList(); break;
+      case '4': cmdStats(); break;
+      case '5': cmdExport(cwd); break;
+      case '6': {
+        const file = await ask('📥 Path to the .ia-index.json file: ');
+        if (file) cmdImport(file, cwd);
+        else console.log('👌 No file given — nothing was imported.');
+        break;
+      }
+      case '7': cmdHookInstall(cwd); break;
+      case '8': await cmdRemove(cwd); break;
+      case '9': await cmdClean(); break;
+      default: console.log(c.yellow(`🤔 "${choice}" is not an option — pick a number from the menu.`)); break;
+    }
+
+    // back to the menu after every action — Enter continues, q quits
+    const back = await ask(c.dim('↩️  Press Enter to go back to the menu (or q to quit): '));
+    if (/^(q|quit|exit|0)$/i.test(back.trim())) {
+      console.log('👋 See you later! Happy coding! ✨');
+      return;
+    }
   }
 }
 
@@ -1066,7 +1082,7 @@ async function main() {
       console.error('❌ Invalid target folder: ' + target);
       process.exit(1);
     }
-    cmdImport(positional[1], target, opts);
+    if (!cmdImport(positional[1], target, opts)) process.exit(1);
     return;
   }
   if (cmd === 'hook') {
