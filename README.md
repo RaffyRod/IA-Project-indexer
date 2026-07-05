@@ -32,14 +32,33 @@ even answers your question.
 ## ✨ Features
 
 - 🧭 **Interactive menu** — just run `ia-index` and pick an option
+- 🤖 **One command configures EVERY assistant** — writes `CLAUDE.md` + `AGENTS.md` (the open agents standard used by Codex, Cursor, Jules…) and updates `.cursorrules` / `copilot-instructions.md` when they exist
 - 🗂️ **Full map** — every relevant folder and file, grouped by directory
-- 🏗️ **Signatures** — classes, methods, functions, interfaces, types and exported consts
+- 🏗️ **Signatures in 8 languages** — TypeScript, JavaScript, Python, Go, Java, C#, PHP, Ruby
 - 📤 **Export / Import** — move an index between machines, no re-scan needed
+- 📈 **Savings dashboard** — `ia-index stats` shows your global token savings
 - 📦 **Project metadata** — npm scripts and dependencies from `package.json`
 - 🚫 **Never hangs** — skips `node_modules`, `.git`, `dist` and 30+ heavy folders, plus your `.gitignore`
-- 🤖 **Auto-configures `CLAUDE.md`** — Claude Code reads the index first, automatically (opt out with `--no-claude`)
 - 🔒 **100% local** — no network, no telemetry, no cloud
 - 📦 **Zero dependencies** — one file of plain Node.js
+
+## 🥊 Why not an MCP server or an embeddings-based indexer?
+
+| | ⚡ IA Project Indexer | MCP indexers / AI search tools |
+|---|---|---|
+| **Setup** | 1 command, done | Server config per AI client |
+| **Dependencies** | 0 | Databases, embeddings, daemons |
+| **Works with** | Any assistant that reads text | Only MCP-compatible clients |
+| **Output** | Plain Markdown you can read & commit | Opaque vector store |
+| **Portability** | `export` → one JSON file → `import` | Re-index on every machine |
+| **Multi-assistant config** | CLAUDE.md + AGENTS.md + Cursor + Copilot | Manual per tool |
+| **Privacy** | 100% local, no processes running | Background services |
+| **Speed** | < 1 second | Minutes on first index |
+| **Can it hang?** | Never (skips heavy folders by design) | Frequently on `node_modules` |
+
+Embeddings-based search is great for *"find code that talks about X"* in huge
+monorepos. For the everyday need — *"give my AI assistant instant project
+context without burning tokens"* — a compact, readable index wins.
 
 ## 🚀 Installation
 
@@ -72,7 +91,7 @@ ia-index
 ```
 
 ```
-⚡ IA Project Indexer v1.2.0 — make your AI assistant cheaper and faster 💰
+⚡ IA Project Indexer v1.3.0 — make your AI assistant cheaper and faster 💰
 
    📂 Current project: my-api-project 📭 not indexed yet
 
@@ -81,13 +100,14 @@ ia-index
    1) 📦 Index / update this project  (takes <1 second ⚡)
    2) 📊 Check status of this project
    3) 📋 List all my indexed projects
-   4) 📤 Export this project's index  (share it with another machine)
-   5) 📥 Import an exported index
-   6) 🗑️  Remove this project's index
-   7) 🧹 Clean global memory
-   8) 👋 Exit
+   4) 📈 Show my global token savings
+   5) 📤 Export this project's index  (share it with another machine)
+   6) 📥 Import an exported index
+   7) 🗑️  Remove this project's index
+   8) 🧹 Clean global memory
+   9) 👋 Exit
 
-Choose an option [1-8]:
+Choose an option [1-9]:
 ```
 
 ### Direct commands
@@ -98,6 +118,7 @@ Choose an option [1-8]:
 | `ia-index update [path]` | 🔄 Same as `index` — refresh after code changes |
 | `ia-index status [path]` | 📊 Is the project indexed? Is it up to date? |
 | `ia-index list` | 📋 List all your indexed projects |
+| `ia-index stats` | 📈 Global token-savings dashboard |
 | `ia-index export [path]` | 📤 Export the index to a portable file |
 | `ia-index import <file> [path]` | 📥 Load an exported index on this machine |
 | `ia-index remove [path]` | 🗑️ Delete a project's index (asks for confirmation) |
@@ -109,7 +130,7 @@ Choose an option [1-8]:
 | Flag | Effect |
 |---|---|
 | `--out <file>` | With `export`: custom output file |
-| `--no-claude` | Don't touch `CLAUDE.md` when indexing/importing |
+| `--no-ai-config` | Don't touch AI config files (`CLAUDE.md`, `AGENTS.md`…) when indexing/importing |
 | `--yes`, `-y` | Skip confirmation prompts (for `remove` / `clean`) |
 | `--all` | With `clean`: also delete every project's `.ai-index/` folder |
 | `--version`, `-v` | Show version |
@@ -155,9 +176,10 @@ written — a corrupted or foreign file is rejected with a friendly error.
 
 | Assistant | Setup |
 |---|---|
-| **Claude Code** | ✅ Automatic — `ia-index` adds the instruction to `CLAUDE.md` |
-| **Cursor** | Add to `.cursorrules`: *"Read `.ai-index/PROJECT-INDEX.md` before exploring code"* |
-| **GitHub Copilot** | Same line in `.github/copilot-instructions.md` |
+| **Claude Code** | ✅ Automatic — `CLAUDE.md` is written for you |
+| **Codex / Jules / agents standard** | ✅ Automatic — `AGENTS.md` is written for you |
+| **Cursor** | ✅ Automatic if `.cursorrules` exists (block is appended) |
+| **GitHub Copilot** | ✅ Automatic if `.github/copilot-instructions.md` exists |
 | **ChatGPT / Gemini (web)** | Attach or paste `PROJECT-INDEX.md` at the start of the chat |
 
 The index is plain Markdown — no protocols (MCP), no servers, no vendor lock-in.
@@ -165,8 +187,8 @@ If your assistant can read text, it works. 🌐
 
 ## 🗣️ Supported languages
 
-- **Signature extraction:** TypeScript, JavaScript (`.ts .tsx .js .jsx .mjs .cjs`), Python (`.py`)
-- **Listed in structure:** JSON, YAML, Markdown, HTML, CSS, SQL, Java, C#, Go, Ruby, PHP, shell scripts
+- **Signature extraction (classes, methods, functions):** TypeScript, JavaScript (`.ts .tsx .js .jsx .mjs .cjs`), Python, Go, Java, C#, PHP, Ruby
+- **Listed in structure:** JSON, YAML, Markdown, HTML, CSS, SQL, shell scripts
 
 ## 📍 Storage
 
@@ -191,10 +213,10 @@ second) — or commit it so the whole team shares it.
 npm test
 ```
 
-35 assertions covering signature extraction (TS/JS/Python), folder exclusion,
-`.gitignore` support, every CLI command (`index`, `update`, `status`, `list`,
-`export`, `import`, `remove`, `clean`), import validation and the CLAUDE.md
-integration.
+45 assertions covering signature extraction in all 8 languages, folder
+exclusion, `.gitignore` support, every CLI command (`index`, `update`,
+`status`, `list`, `stats`, `export`, `import`, `remove`, `clean`), import
+validation and the multi-assistant config integration.
 
 ## 📜 License
 

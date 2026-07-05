@@ -15,7 +15,7 @@ const path = require('path');
 const { execFileSync } = require('child_process');
 
 const CLI = path.join(__dirname, '..', 'index.js');
-const { extractJsTs, extractPy } = require('..');
+const { extractJsTs, extractPy, extractGo, extractJavaCs, extractPhp, extractRuby } = require('..');
 
 // Isolated global registry for the whole test run
 const tempHome = fs.mkdtempSync(path.join(os.tmpdir(), 'ai-index-home-'));
@@ -105,6 +105,78 @@ ok('detects python classes and methods', () => {
   assert.strictEqual(symbols[1].name, 'main');
 });
 
+// ---------------------------------------------------- unit: more languages
+
+console.log('\nextractGo() / extractJavaCs() / extractPhp() / extractRuby()');
+
+ok('Go: structs, interfaces, methods and functions', () => {
+  const src = [
+    'type Server struct {',
+    '}',
+    'type Store interface {',
+    '}',
+    'func (s *Server) Start() error {',
+    '}',
+    'func NewServer() *Server {',
+    '}',
+  ].join('\n');
+  const symbols = extractGo(src);
+  assert.strictEqual(symbols[0].kind, 'class');
+  assert.strictEqual(symbols[0].name, 'Server');
+  assert.deepStrictEqual(symbols[0].methods, ['Start']);
+  assert.strictEqual(symbols[1].kind, 'interface');
+  assert.strictEqual(symbols[2].name, 'NewServer');
+});
+
+ok('Java/C#: classes with public methods, interfaces and enums', () => {
+  const src = [
+    'public class OrderService {',
+    '    public Order createOrder(String id) {',
+    '    }',
+    '    private void internalOnly() {',
+    '    }',
+    '}',
+    'public interface Repository {',
+    '}',
+    'public enum Status {',
+    '}',
+  ].join('\n');
+  const symbols = extractJavaCs(src);
+  assert.strictEqual(symbols[0].name, 'OrderService');
+  assert.deepStrictEqual(symbols[0].methods, ['createOrder']); // private excluded
+  assert.strictEqual(symbols[1].kind, 'interface');
+  assert.strictEqual(symbols[2].kind, 'enum');
+});
+
+ok('PHP: classes with methods and standalone functions', () => {
+  const src = [
+    'class Invoice extends Document {',
+    '    public function total() {',
+    '    }',
+    '}',
+    'function format_money($n) {',
+    '}',
+  ].join('\n');
+  const symbols = extractPhp(src);
+  assert.strictEqual(symbols[0].name, 'Invoice');
+  assert.strictEqual(symbols[0].extends, 'Document');
+  assert.deepStrictEqual(symbols[0].methods, ['total']);
+  assert.strictEqual(symbols[1].name, 'format_money');
+});
+
+ok('Ruby: classes with methods', () => {
+  const src = [
+    'class Parser < Base',
+    '  def parse!',
+    '  end',
+    'end',
+  ].join('\n');
+  const symbols = extractRuby(src);
+  assert.strictEqual(symbols[0].name, 'Parser');
+  assert.strictEqual(symbols[0].extends, 'Base');
+  assert.deepStrictEqual(symbols[0].methods, ['parse!']);
+});
+
 // ---------------------------------------------------- e2e: fixture project
 
 console.log('\nCLI end-to-end');
@@ -127,6 +199,7 @@ write('package.json', JSON.stringify({
 write('src/api/BaseApi.ts', 'export abstract class BaseApi {\n  protected url() {}\n  async send() {}\n}\n');
 write('src/api/UserApi.ts', 'export class UserApi extends BaseApi {\n  get() {}\n  create() {}\n}\n');
 write('src/helpers/crypto.py', 'def unique_id():\n    pass\n');
+write('src/server/main.go', 'type Server struct {\n}\nfunc (s *Server) Start() error {\n}\nfunc main() {\n}\n');
 write('src/ignored.log', 'not indexable');
 // heavy folder that must be skipped
 write('node_modules/fake-lib/index.js', 'export function neverIndexed() {}');
@@ -163,6 +236,11 @@ ok('index contains Python symbols', () => {
   assert.match(index, /fn unique_id\(\)/);
 });
 
+ok('index contains Go symbols', () => {
+  assert.match(index, /class Server: Start/);
+  assert.match(index, /fn main\(\)/);
+});
+
 ok('node_modules is never indexed', () => {
   assert.ok(!index.includes('neverIndexed'));
   assert.ok(!index.includes('fake-lib'));
@@ -177,8 +255,9 @@ ok('non-code files are excluded', () => {
   assert.ok(!index.includes('ignored.log'));
 });
 
-ok('--no-claude skips CLAUDE.md creation', () => {
+ok('--no-claude / --no-ai-config skips all AI config files', () => {
   assert.ok(!fs.existsSync(path.join(fixture, 'CLAUDE.md')));
+  assert.ok(!fs.existsSync(path.join(fixture, 'AGENTS.md')));
 });
 
 ok('bare `ai-index <path>` still indexes (backward compatible)', () => {
@@ -208,7 +287,9 @@ ok('`update` refreshes the index back to up to date', () => {
   assert.match(out, /Up to date/);
 });
 
-// ---- CLAUDE.md integration ----
+// ---- multi-assistant AI config integration ----
+
+write('.cursorrules', 'Always use TypeScript strict mode.\n'); // pre-existing user file
 
 cli(['index', fixture]);
 
@@ -216,6 +297,22 @@ ok('default `index` creates CLAUDE.md with ai-index block', () => {
   const claude = fs.readFileSync(path.join(fixture, 'CLAUDE.md'), 'utf8');
   assert.match(claude, /<!-- ai-index:start -->/);
   assert.match(claude, /PROJECT-INDEX\.md/);
+});
+
+ok('default `index` also creates AGENTS.md (open agents standard)', () => {
+  const agents = fs.readFileSync(path.join(fixture, 'AGENTS.md'), 'utf8');
+  assert.match(agents, /<!-- ai-index:start -->/);
+  assert.match(agents, /PROJECT-INDEX\.md/);
+});
+
+ok('pre-existing .cursorrules gets the block, user content preserved', () => {
+  const rules = fs.readFileSync(path.join(fixture, '.cursorrules'), 'utf8');
+  assert.ok(rules.includes('Always use TypeScript strict mode.'));
+  assert.match(rules, /<!-- ai-index:start -->/);
+});
+
+ok('copilot-instructions.md is NOT created when it does not exist', () => {
+  assert.ok(!fs.existsSync(path.join(fixture, '.github', 'copilot-instructions.md')));
 });
 
 ok('re-run updates the block without duplicating it', () => {
@@ -292,11 +389,15 @@ fs.rmSync(importTarget, { recursive: true, force: true });
 
 // ---- remove ----
 
-ok('`remove --yes` deletes index, registry entry and CLAUDE.md block', () => {
+ok('`remove --yes` deletes index, registry entry and all AI config blocks', () => {
   const out = cli(['remove', fixture, '--yes']);
   assert.match(out, /removed/);
   assert.ok(!fs.existsSync(path.join(fixture, '.ai-index')));
   assert.ok(!fs.existsSync(path.join(fixture, 'CLAUDE.md'))); // only contained our block
+  assert.ok(!fs.existsSync(path.join(fixture, 'AGENTS.md'))); // only contained our block
+  const rules = fs.readFileSync(path.join(fixture, '.cursorrules'), 'utf8');
+  assert.ok(rules.includes('Always use TypeScript strict mode.')); // user content preserved
+  assert.ok(!rules.includes('ai-index:start')); // our block stripped
   assert.ok(!cli(['list']).includes(fixtureName));
 });
 
@@ -312,6 +413,21 @@ ok('`remove` preserves user content in CLAUDE.md', () => {
   const claude = fs.readFileSync(path.join(fixture, 'CLAUDE.md'), 'utf8');
   assert.ok(claude.includes('Always use TypeScript.'));
   assert.ok(!claude.includes('ai-index:start'));
+});
+
+// ---- stats ----
+
+ok('`stats` shows the global savings dashboard', () => {
+  cli(['clean', '--yes']); // start from a clean registry
+  cli(['index', fixture, '--no-claude']);
+  const out = cli(['stats']);
+  assert.match(out, /Projects indexed:\s+1/);
+  assert.match(out, /Every AI session saves/);
+});
+
+ok('`stats` on an empty registry shows a friendly message', () => {
+  cli(['clean', '--yes']);
+  assert.match(cli(['stats']), /No projects indexed yet/);
 });
 
 // ---- clean ----
@@ -334,7 +450,7 @@ ok('`clean --all --yes` also deletes project .ai-index folders', () => {
 
 ok('`help` lists every command', () => {
   const out = cli(['help']);
-  for (const word of ['index', 'update', 'status', 'list', 'export', 'import', 'remove', 'clean']) {
+  for (const word of ['index', 'update', 'status', 'list', 'stats', 'export', 'import', 'remove', 'clean']) {
     assert.ok(out.includes(word), 'missing command in help: ' + word);
   }
 });

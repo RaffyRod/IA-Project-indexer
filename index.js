@@ -64,11 +64,14 @@ const IGNORE_FILES = new Set([
 ]);
 
 // Extensions whose content is analyzed (class/function signatures)
-const CODE_EXTS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs', '.py']);
+const CODE_EXTS = new Set([
+  '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs',
+  '.py', '.go', '.java', '.cs', '.php', '.rb',
+]);
 // Extensions that are only listed (they exist, but are not analyzed)
 const LIST_EXTS = new Set([
   '.json', '.md', '.yml', '.yaml', '.xml', '.html', '.css', '.scss',
-  '.sql', '.sh', '.ps1', '.java', '.cs', '.go', '.rb', '.php',
+  '.sql', '.sh', '.ps1',
 ]);
 
 const MAX_FILE_SIZE = 512 * 1024; // skip analyzing files > 512KB
@@ -195,6 +198,110 @@ function extractPy(content) {
   return out;
 }
 
+function extractGo(content) {
+  const out = [];
+  const types = new Map();
+  for (const line of content.split(/\r?\n/)) {
+    let m = line.match(/^type\s+(\w+)\s+(struct|interface)\b/);
+    if (m) {
+      const t = { name: m[1], methods: [] };
+      types.set(m[1], t);
+      out.push({ kind: m[2] === 'interface' ? 'interface' : 'class', ...t });
+      continue;
+    }
+    m = line.match(/^func\s+\(\w+\s+\*?(\w+)\)\s+(\w+)\s*\(/); // method with receiver
+    if (m) {
+      const t = types.get(m[1]);
+      if (t) t.methods.push(m[2]);
+      else out.push({ kind: 'fn', name: m[1] + '.' + m[2] });
+      continue;
+    }
+    m = line.match(/^func\s+(\w+)\s*\(/);
+    if (m) out.push({ kind: 'fn', name: m[1] });
+  }
+  return out;
+}
+
+const JAVACS_KEYWORDS = new Set([
+  'if', 'for', 'while', 'switch', 'catch', 'return', 'new', 'else', 'do',
+  'try', 'throw', 'using', 'lock', 'foreach', 'get', 'set', 'this', 'base',
+]);
+
+function extractJavaCs(content) {
+  const out = [];
+  let current = null;
+  for (const line of content.split(/\r?\n/)) {
+    let m = line.match(/^\s*(?:public\s+|private\s+|protected\s+|internal\s+)?(?:static\s+|abstract\s+|final\s+|sealed\s+|partial\s+)*(class|interface|enum|record)\s+(\w+)(?:\s*(?:extends|:)\s*(\w+))?/);
+    if (m) {
+      current = { name: m[2], extends: m[3] || null, methods: [] };
+      out.push({ kind: (m[1] === 'class' || m[1] === 'record') ? 'class' : m[1], ...current });
+      continue;
+    }
+    m = line.match(/^\s+(?:public|protected|internal)\s+(?:static\s+|async\s+|virtual\s+|override\s+|final\s+|abstract\s+|synchronized\s+)*[\w<>[\],?\s]+?\s+(\w+)\s*\(/);
+    if (m && current && !JAVACS_KEYWORDS.has(m[1]) && !current.methods.includes(m[1])) {
+      current.methods.push(m[1]);
+    }
+  }
+  return out;
+}
+
+function extractPhp(content) {
+  const out = [];
+  let current = null;
+  for (const line of content.split(/\r?\n/)) {
+    let m = line.match(/^\s*(?:abstract\s+|final\s+)*(class|interface|trait)\s+(\w+)(?:\s+extends\s+(\w+))?/);
+    if (m) {
+      current = { name: m[2], extends: m[3] || null, methods: [] };
+      out.push({ kind: m[1] === 'interface' ? 'interface' : 'class', ...current });
+      continue;
+    }
+    m = line.match(/^(\s*)(?:public\s+|private\s+|protected\s+)?(?:static\s+)?function\s+(\w+)/);
+    if (m) {
+      if (m[1].length > 0 && current) {
+        if (!m[2].startsWith('__') && !current.methods.includes(m[2])) current.methods.push(m[2]);
+      } else {
+        current = null;
+        out.push({ kind: 'fn', name: m[2] });
+      }
+    }
+  }
+  return out;
+}
+
+function extractRuby(content) {
+  const out = [];
+  let current = null;
+  for (const line of content.split(/\r?\n/)) {
+    let m = line.match(/^\s*(class|module)\s+([A-Z]\w*)(?:\s*<\s*(\w+))?/);
+    if (m) {
+      current = { name: m[2], extends: m[3] || null, methods: [] };
+      out.push({ kind: 'class', ...current });
+      continue;
+    }
+    m = line.match(/^(\s*)def\s+(?:self\.)?(\w+[?!]?)/);
+    if (m) {
+      if (m[1].length > 0 && current) {
+        if (!current.methods.includes(m[2])) current.methods.push(m[2]);
+      } else {
+        current = null;
+        out.push({ kind: 'fn', name: m[2] });
+      }
+    }
+  }
+  return out;
+}
+
+function extractorFor(ext) {
+  switch (ext) {
+    case '.py': return extractPy;
+    case '.go': return extractGo;
+    case '.java': case '.cs': return extractJavaCs;
+    case '.php': return extractPhp;
+    case '.rb': return extractRuby;
+    default: return extractJsTs;
+  }
+}
+
 function formatSymbols(symbols) {
   const parts = [];
   for (const s of symbols) {
@@ -305,7 +412,7 @@ function cmdIndex(root, opts = {}) {
       if (CODE_EXTS.has(f.ext) && f.size <= MAX_FILE_SIZE) {
         let content = '';
         try { content = fs.readFileSync(f.abs, 'utf8'); } catch { /* skip */ }
-        const symbols = f.ext === '.py' ? extractPy(content) : extractJsTs(content);
+        const symbols = extractorFor(f.ext)(content);
         const parts = formatSymbols(symbols);
         if (parts.length) {
           lines.push(`- **${name}** — ${parts.join(' · ')}`);
@@ -336,11 +443,12 @@ function cmdIndex(root, opts = {}) {
     sourceKB: +(totalBytes / 1024).toFixed(1),
     indexKB: +(indexBytes / 1024).toFixed(1),
     reduction: reduction + '%',
+    timesIndexed: ((registry[projectName] && registry[projectName].timesIndexed) || 0) + 1,
   };
   saveRegistry(registry);
 
-  // CLAUDE.md integration (opt-out with --no-claude)
-  if (!opts.noClaude) updateClaudeMd(root);
+  // Multi-assistant integration (opt-out with --no-ai-config / --no-claude)
+  const touched = opts.noClaude ? [] : updateAiConfigs(root);
 
   console.log('');
   console.log(c.green(c.bold(`🎉 Done! Project indexed: ${projectName} ✨`)));
@@ -350,52 +458,76 @@ function cmdIndex(root, opts = {}) {
   console.log(`   📊 Source:    ${kb(totalBytes)}  ${c.dim(`(~${tokens(totalBytes).toLocaleString()} tokens)`)}`);
   console.log(`   🗜️  Index:     ${kb(indexBytes)}  ${c.dim(`(~${tokens(indexBytes).toLocaleString()} tokens)`)}`);
   console.log(`   💰 Reduction: ${c.green(c.bold(`${reduction}% fewer tokens`))} 🚀`);
+  if (touched.length) {
+    console.log(`   🤖 AI configs ready: ${c.cyan(touched.join(' · '))} ✅`);
+  }
   console.log('');
   console.log(c.dim('   💡 Tip: your AI assistant now reads .ai-index/PROJECT-INDEX.md'));
-  console.log(c.dim('      instead of exploring the whole codebase.' + (opts.noClaude ? '' : ' CLAUDE.md is ready ✅')));
+  console.log(c.dim('      instead of exploring the whole codebase.'));
   console.log(c.dim('   🔄 Code changed a lot? Just run: ia-index update'));
   console.log('');
 }
 
-const CLAUDE_START = '<!-- ai-index:start -->';
-const CLAUDE_END = '<!-- ai-index:end -->';
+const BLOCK_START = '<!-- ai-index:start -->';
+const BLOCK_END = '<!-- ai-index:end -->';
 
-function updateClaudeMd(root) {
-  const claudeMd = path.join(root, 'CLAUDE.md');
-  const block = [
-    CLAUDE_START,
+// One command configures EVERY assistant: files with createIfMissing are
+// always written; the others only get the block if the user already has them.
+const AI_CONFIG_FILES = [
+  { file: 'CLAUDE.md', createIfMissing: true },                                  // Claude Code
+  { file: 'AGENTS.md', createIfMissing: true },                                  // open agents standard (Codex, Cursor, Jules…)
+  { file: '.cursorrules', createIfMissing: false },                              // Cursor (legacy rules file)
+  { file: path.join('.github', 'copilot-instructions.md'), createIfMissing: false }, // GitHub Copilot
+];
+
+function aiBlock() {
+  return [
+    BLOCK_START,
     '## 🧠 Project index (token saver)',
     '',
     'This project has a compact index at `.ai-index/PROJECT-INDEX.md`.',
-    '**Read it FIRST** before using Glob/Grep/Read to explore: it contains the',
-    'full structure, classes, methods and functions of the entire codebase.',
+    '**Read it FIRST** before searching or reading files to explore: it contains',
+    'the full structure, classes, methods and functions of the entire codebase.',
     'Only open source files when you need the exact body of a function.',
     'If the code changed significantly, regenerate with: `ia-index update`',
-    CLAUDE_END,
+    BLOCK_END,
   ].join('\n');
-
-  let content = '';
-  try { content = fs.readFileSync(claudeMd, 'utf8'); } catch { /* new file */ }
-
-  if (content.includes(CLAUDE_START)) {
-    content = content.replace(new RegExp(CLAUDE_START + '[\\s\\S]*?' + CLAUDE_END), block);
-  } else {
-    content = content ? content.trimEnd() + '\n\n' + block + '\n' : block + '\n';
-  }
-  fs.writeFileSync(claudeMd, content, 'utf8');
 }
 
-function stripClaudeMd(root) {
-  const claudeMd = path.join(root, 'CLAUDE.md');
-  let content = '';
-  try { content = fs.readFileSync(claudeMd, 'utf8'); } catch { return; }
-  if (!content.includes(CLAUDE_START)) return;
+function updateAiConfigs(root) {
+  const touched = [];
+  const block = aiBlock();
+  for (const target of AI_CONFIG_FILES) {
+    const abs = path.join(root, target.file);
+    let content = '';
+    try { content = fs.readFileSync(abs, 'utf8'); }
+    catch { if (!target.createIfMissing) continue; }
 
-  content = content.replace(new RegExp('\\n*' + CLAUDE_START + '[\\s\\S]*?' + CLAUDE_END + '\\n*'), '\n').trim();
-  if (content) {
-    fs.writeFileSync(claudeMd, content + '\n', 'utf8');
-  } else {
-    fs.unlinkSync(claudeMd); // the file only contained our block
+    if (content.includes(BLOCK_START)) {
+      content = content.replace(new RegExp(BLOCK_START + '[\\s\\S]*?' + BLOCK_END), block);
+    } else {
+      content = content ? content.trimEnd() + '\n\n' + block + '\n' : block + '\n';
+    }
+    fs.mkdirSync(path.dirname(abs), { recursive: true });
+    fs.writeFileSync(abs, content, 'utf8');
+    touched.push(target.file);
+  }
+  return touched;
+}
+
+function stripAiConfigs(root) {
+  for (const target of AI_CONFIG_FILES) {
+    const abs = path.join(root, target.file);
+    let content = '';
+    try { content = fs.readFileSync(abs, 'utf8'); } catch { continue; }
+    if (!content.includes(BLOCK_START)) continue;
+
+    content = content.replace(new RegExp('\\n*' + BLOCK_START + '[\\s\\S]*?' + BLOCK_END + '\\n*'), '\n').trim();
+    if (content) {
+      fs.writeFileSync(abs, content + '\n', 'utf8');
+    } else {
+      fs.unlinkSync(abs); // the file only contained our block
+    }
   }
 }
 
@@ -462,6 +594,46 @@ function cmdList() {
     console.log(`      📊 Files:    ${p.files ?? '?'} · source ${p.sourceKB ?? '?'} KB → index ${p.indexKB ?? '?'} KB ${c.green(`(${p.reduction ?? '?'} fewer tokens 💰)`)}`);
     console.log('');
   }
+}
+
+// ---------------------------------------------------------- command: stats
+
+function cmdStats() {
+  const registry = loadRegistry();
+  const names = Object.keys(registry);
+  if (!names.length) {
+    console.log('');
+    console.log('📭 No projects indexed yet — no savings to show… for now! 😉');
+    console.log(`   👉 Run ${c.green('ia-index index')} inside any project to start saving tokens 🚀`);
+    console.log('');
+    return;
+  }
+
+  let srcKB = 0, idxKB = 0, totalFiles = 0, reindexes = 0;
+  for (const name of names) {
+    const p = registry[name];
+    srcKB += Number(p.sourceKB) || 0;
+    idxKB += Number(p.indexKB) || 0;
+    totalFiles += Number(p.files) || 0;
+    reindexes += Number(p.timesIndexed) || 1;
+  }
+  const srcTokens = Math.round(srcKB * 1024 / 4);
+  const idxTokens = Math.round(idxKB * 1024 / 4);
+  const savedPerSession = srcTokens - idxTokens;
+  const pct = srcTokens ? Math.max(0, Math.round((1 - idxTokens / srcTokens) * 100)) : 0;
+
+  console.log('');
+  console.log(c.bold(c.cyan('📈 Global savings — IA Project Indexer')));
+  console.log('');
+  console.log(`   📦 Projects indexed:   ${names.length}`);
+  console.log(`   🗂️  Files covered:      ${totalFiles.toLocaleString()}`);
+  console.log(`   📊 Source analyzed:    ${srcKB.toFixed(1)} KB  ${c.dim(`(~${srcTokens.toLocaleString()} tokens)`)}`);
+  console.log(`   🗜️  Index size:         ${idxKB.toFixed(1)} KB  ${c.dim(`(~${idxTokens.toLocaleString()} tokens)`)}`);
+  console.log(`   🔄 Times (re)indexed:  ${reindexes}`);
+  console.log('');
+  console.log(`   💰 ${c.green(c.bold(`Every AI session saves ~${savedPerSession.toLocaleString()} tokens (${pct}%)`))} 🚀`);
+  console.log(c.dim('      …and those savings repeat on EVERY new session, in every project.'));
+  console.log('');
 }
 
 // --------------------------------------------------------- command: export
@@ -564,15 +736,16 @@ function cmdImport(file, targetRoot, opts = {}) {
   };
   saveRegistry(registry);
 
-  if (!opts.noClaude) updateClaudeMd(targetRoot);
+  const touched = opts.noClaude ? [] : updateAiConfigs(targetRoot);
 
   console.log('');
   console.log(c.green(c.bold(`📥 Import complete! Welcome aboard, "${registry[projectName].imported.from}" ✨`)));
   console.log('');
   console.log(`   📄 Index:    ${c.cyan(outFile)}`);
   console.log(`   📍 Project:  ${projectName}`);
+  if (touched.length) console.log(`   🤖 AI configs ready: ${c.cyan(touched.join(' · '))} ✅`);
   console.log('');
-  console.log(c.dim('   💡 Your AI assistant on THIS machine can now read the index.' + (opts.noClaude ? '' : ' CLAUDE.md is ready ✅')));
+  console.log(c.dim('   💡 Your AI assistant on THIS machine can now read the index.'));
   console.log(c.dim('   🔄 Have the source code here too? Run `ia-index update` to regenerate it locally.'));
   console.log('');
 }
@@ -596,7 +769,7 @@ async function cmdRemove(root, opts = {}) {
 
   if (hasIndex) fs.rmSync(indexDir, { recursive: true, force: true });
   if (hasEntry) { delete registry[projectName]; saveRegistry(registry); }
-  stripClaudeMd(root);
+  stripAiConfigs(root);
 
   console.log(c.green(`✅ Index of "${projectName}" removed. Bye bye index! 👋`));
   console.log(c.dim(`   💡 You can re-index anytime with: ia-index index`));
@@ -630,7 +803,7 @@ async function cmdClean(opts = {}) {
       const projectPath = registry[name].path;
       try {
         fs.rmSync(path.join(projectPath, '.ai-index'), { recursive: true, force: true });
-        stripClaudeMd(projectPath);
+        stripAiConfigs(projectPath);
         console.log(`   🗑️  ${name}: .ai-index/ deleted ✅`);
       } catch { console.log(c.yellow(`   ⚠️  ${name}: could not delete .ai-index/`)); }
     }
@@ -657,30 +830,32 @@ async function menu() {
   console.log(`   ${c.cyan('1')}) 📦 Index / update this project  ${c.dim('(takes <1 second ⚡)')}`);
   console.log(`   ${c.cyan('2')}) 📊 Check status of this project`);
   console.log(`   ${c.cyan('3')}) 📋 List all my indexed projects`);
-  console.log(`   ${c.cyan('4')}) 📤 Export this project's index  ${c.dim('(share it with another machine)')}`);
-  console.log(`   ${c.cyan('5')}) 📥 Import an exported index`);
-  console.log(`   ${c.cyan('6')}) 🗑️  Remove this project's index`);
-  console.log(`   ${c.cyan('7')}) 🧹 Clean global memory`);
-  console.log(`   ${c.cyan('8')}) 👋 Exit`);
+  console.log(`   ${c.cyan('4')}) 📈 Show my global token savings`);
+  console.log(`   ${c.cyan('5')}) 📤 Export this project's index  ${c.dim('(share it with another machine)')}`);
+  console.log(`   ${c.cyan('6')}) 📥 Import an exported index`);
+  console.log(`   ${c.cyan('7')}) 🗑️  Remove this project's index`);
+  console.log(`   ${c.cyan('8')}) 🧹 Clean global memory`);
+  console.log(`   ${c.cyan('9')}) 👋 Exit`);
   console.log('');
 
-  const choice = await ask(c.bold('Choose an option [1-8]: '));
+  const choice = await ask(c.bold('Choose an option [1-9]: '));
   console.log('');
 
   switch (choice) {
     case '1': cmdIndex(cwd); break;
     case '2': cmdStatus(cwd); break;
     case '3': cmdList(); break;
-    case '4': cmdExport(cwd); break;
-    case '5': {
+    case '4': cmdStats(); break;
+    case '5': cmdExport(cwd); break;
+    case '6': {
       const file = await ask('📥 Path to the .ai-index.json file: ');
       if (file) cmdImport(file, cwd);
       else console.log('👌 No file given — nothing was imported.');
       break;
     }
-    case '6': await cmdRemove(cwd); break;
-    case '7': await cmdClean(); break;
-    case '8': default: console.log('👋 See you later! Happy coding! ✨'); break;
+    case '7': await cmdRemove(cwd); break;
+    case '8': await cmdClean(); break;
+    case '9': default: console.log('👋 See you later! Happy coding! ✨'); break;
   }
 }
 
@@ -696,6 +871,7 @@ function help() {
   ia-index update [path]         🔄 Same as index — refresh after code changes
   ia-index status [path]         📊 Is the project indexed? Is it up to date?
   ia-index list                  📋 List all your indexed projects
+  ia-index stats                 📈 Global token-savings dashboard
   ia-index export [path]         📤 Export the index to a portable file
   ia-index import <file> [path]  📥 Load an exported index on this machine
   ia-index remove [path]         🗑️  Delete a project's index (asks first!)
@@ -703,16 +879,23 @@ function help() {
   ia-index help                  💬 This help
 
 🚩 Flags:
-  --out <file>   With export: custom output file
-  --no-claude    Don't touch CLAUDE.md when indexing/importing
-  --yes, -y      Skip confirmation prompts (for remove / clean)
-  --all          With clean: also delete every project's .ai-index/ folder
-  --version, -v  Show version
+  --out <file>    With export: custom output file
+  --no-ai-config  Don't touch AI config files (CLAUDE.md, AGENTS.md…)
+  --yes, -y       Skip confirmation prompts (for remove / clean)
+  --all           With clean: also delete every project's .ai-index/ folder
+  --version, -v   Show version
 
 💡 How it works:
    Generates .ai-index/PROJECT-INDEX.md — a compact summary of your
    project's structure, classes, methods and functions. Your LLM reads
    it instead of exploring the codebase → up to 99% fewer tokens! 🚀
+
+🤖 One command configures EVERY assistant: CLAUDE.md + AGENTS.md are
+   set up automatically, and .cursorrules / copilot-instructions.md
+   are updated when they exist.
+
+🗣️  Signature extraction: TypeScript · JavaScript · Python · Go ·
+   Java · C# · PHP · Ruby
 
 🌐 Works with Claude, ChatGPT, Gemini, Cursor and any AI assistant.
 🖥️  Windows / macOS / Linux · 🔒 100% local · 📦 Zero dependencies
@@ -721,7 +904,7 @@ function help() {
 
 // ------------------------------------------------------------------- main
 
-const COMMANDS = new Set(['index', 'update', 'status', 'list', 'export', 'import', 'remove', 'delete', 'rm', 'clean', 'help']);
+const COMMANDS = new Set(['index', 'update', 'status', 'list', 'stats', 'export', 'import', 'remove', 'delete', 'rm', 'clean', 'help']);
 
 async function main() {
   const raw = process.argv.slice(2);
@@ -737,7 +920,7 @@ async function main() {
   const positional = args.filter(a => !a.startsWith('-'));
 
   const opts = {
-    noClaude: flags.has('--no-claude'),
+    noClaude: flags.has('--no-ai-config') || flags.has('--no-claude'), // --no-claude kept as alias
     yes: flags.has('--yes') || flags.has('-y'),
     all: flags.has('--all'),
     out: outFile,
@@ -756,6 +939,7 @@ async function main() {
 
   if (cmd === 'help') { help(); return; }
   if (cmd === 'list') { cmdList(); return; }
+  if (cmd === 'stats') { cmdStats(); return; }
   if (cmd === 'clean') { await cmdClean(opts); return; }
   if (cmd === 'import') {
     const target = path.resolve(positional[2] || '.');
@@ -784,5 +968,8 @@ async function main() {
 if (require.main === module) {
   main().catch(err => { console.error('❌ ' + err.message); process.exit(1); });
 } else {
-  module.exports = { extractJsTs, extractPy, formatSymbols, walk, loadGitignore, isGitignored };
+  module.exports = {
+    extractJsTs, extractPy, extractGo, extractJavaCs, extractPhp, extractRuby,
+    extractorFor, formatSymbols, walk, loadGitignore, isGitignored,
+  };
 }
