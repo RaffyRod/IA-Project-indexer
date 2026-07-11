@@ -305,10 +305,11 @@ function extractJsTs(content) {
       out.push({ kind: 'class', ...currentClass });
       continue;
     }
-    // methods inside a class (indented)
+    // methods inside a class (indented) — including getters/setters; decorated
+    // methods work too (the @decorator line simply doesn't match, the method does)
     if (currentClass) {
       m = line.match(
-        /^\s{2,6}(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+)*(?:async\s+)?(\w+)\s*\(/,
+        /^\s{2,6}(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+)*(?:async\s+)?(?:get\s+|set\s+)?(\w+)\s*\(/,
       );
       if (m && !JS_KEYWORDS.has(m[1]) && !currentClass.methods.includes(m[1])) {
         currentClass.methods.push(m[1]);
@@ -597,11 +598,14 @@ function cmdIndex(root, opts = {}) {
   if (fs.existsSync(legacyDir)) fs.rmSync(legacyDir, { recursive: true, force: true });
 
   // --if-changed: skip everything if no file is newer than the current index
-  // (this is what makes the pre-commit hook feel instant)
+  // AND the file count matches the last run (a deletion lowers the count but
+  // leaves no newer mtime behind). This is what keeps the hook instant.
   const existingIndex = path.join(root, INDEX_DIR, 'PROJECT-INDEX.md');
   if (opts.ifChanged && fs.existsSync(existingIndex)) {
     const indexMtime = fs.statSync(existingIndex).mtimeMs;
-    if (!files.some(f => f.mtimeMs > indexMtime)) {
+    const prev = loadRegistry()[root];
+    const sameCount = !prev || !Number.isFinite(prev.files) || prev.files === files.length;
+    if (sameCount && !files.some(f => f.mtimeMs > indexMtime)) {
       if (!opts.quiet) console.log(`✅ Index already fresh — nothing to do. ⚡`);
       return;
     }
@@ -834,6 +838,9 @@ function cmdStatus(root) {
   const indexMtime = fs.statSync(indexFile).mtimeMs;
   const { files } = walk(root, loadGitignore(root));
   const changed = files.filter(f => f.mtimeMs > indexMtime).length;
+  // deletions leave no newer mtime behind — detect them via the file count
+  const removed =
+    entry && Number.isFinite(entry.files) ? Math.max(0, entry.files - files.length) : 0;
 
   if (entry) {
     console.log(`   🕒 Indexed:   ${String(entry.indexedAt).slice(0, 16).replace('T', ' ')}`);
@@ -848,11 +855,14 @@ function cmdStatus(root) {
     console.log(`   📄 Index:     ${c.cyan(indexFile)}`);
   }
 
-  if (changed === 0) {
+  if (changed === 0 && removed === 0) {
     console.log(`   💚 State:     ${c.green('✅ Up to date — your AI has fresh knowledge!')}`);
   } else {
+    const parts = [];
+    if (changed) parts.push(`${changed} file(s) changed`);
+    if (removed) parts.push(`${removed} file(s) removed`);
     console.log(
-      `   🟡 State:     ${c.yellow(`⚠️  Outdated — ${changed} file(s) changed since last index`)}`,
+      `   🟡 State:     ${c.yellow(`⚠️  Outdated — ${parts.join(', ')} since last index`)}`,
     );
     console.log(`   👉 Refresh it with: ${c.green('ia-index update')}  ⚡`);
   }
@@ -891,11 +901,19 @@ const HOOK_START = '# >>> ia-index pre-commit hook >>>';
 const HOOK_END = '# <<< ia-index pre-commit hook <<<';
 
 function hookBlock() {
+  // Resolution order: global install first, then the project's local
+  // devDependency (node_modules/.bin covers npm, pnpm and yarn shims).
+  // Never fails and never blocks a commit when neither is present.
   return [
     HOOK_START,
     '# Keeps the AI project index fresh on every commit.',
     '# Ultra fast: skips instantly when nothing changed (--if-changed).',
-    'command -v ia-index >/dev/null 2>&1 && ia-index update --quiet --if-changed --no-ai-config || true',
+    '# Works with a global install OR a local devDependency (npm/pnpm/yarn).',
+    'if command -v ia-index >/dev/null 2>&1; then',
+    '  ia-index update --quiet --if-changed --no-ai-config || true',
+    'elif [ -x "./node_modules/.bin/ia-index" ]; then',
+    '  "./node_modules/.bin/ia-index" update --quiet --if-changed --no-ai-config || true',
+    'fi',
     HOOK_END,
   ].join('\n');
 }

@@ -1,7 +1,7 @@
 {
   "name": "ia-project-indexer",
-  "version": "1.7.0",
-  "description": "Save AI tokens: index your codebase for LLMs and cut token usage by up to 99%. One command creates a compact project map (repo map) that Claude, ChatGPT, Gemini, Cursor and Copilot read instead of exploring your code. Local, zero dependencies, auto-updates on every git commit.",
+  "version": "1.8.0",
+  "description": "Save AI tokens: index your codebase for LLMs and cut token usage by up to 99%. One command creates a compact project map (repo map) that Claude, ChatGPT, Gemini, Cursor and Copilot read instead of exploring your code. Local, zero dependencies, auto-updates on every git commit. Install globally or as a devDependency (npm, pnpm, yarn).",
   "main": "index.js",
   "bin": {
     "ia-index": "./index.js"
@@ -58,7 +58,11 @@
     "anthropic",
     "agents-md",
     "prompt-engineering",
-    "pre-commit"
+    "pre-commit",
+    "pnpm",
+    "yarn",
+    "devdependency",
+    "husky"
   ],
   "files": [
     "index.js",

@@ -90,6 +90,19 @@ ok('ignores control-flow keywords as methods', () => {
   assert.deepStrictEqual(symbols[0].methods, ['run']);
 });
 
+ok('detects getters, setters and decorated methods', () => {
+  const src = [
+    'export class Account {',
+    '  get balance() {}',
+    '  set balance(v) {}',
+    "  @Get('/users')",
+    '  async findAll() {}',
+    '}',
+  ].join('\n');
+  const symbols = extractJsTs(src);
+  assert.deepStrictEqual(symbols[0].methods, ['balance', 'findAll']);
+});
+
 // ---------------------------------------------------- unit: extractPy
 
 console.log('\nextractPy()');
@@ -507,6 +520,20 @@ ok('`update --if-changed` re-indexes when a file changed', () => {
   assert.match(out, /updated/);
 });
 
+ok('`status` detects DELETED files (no newer mtime left behind)', () => {
+  write('src/tmp-ghost.ts', 'export function ghost() {}\n');
+  cli(['index', fixture, '--no-claude']);
+  fs.rmSync(path.join(fixture, 'src/tmp-ghost.ts'));
+  const out = cli(['status', fixture]);
+  assert.match(out, /Outdated — 1 file\(s\) removed/);
+});
+
+ok('`update --if-changed` re-indexes after a deletion', () => {
+  const out = cli(['update', fixture, '--if-changed', '--quiet', '--no-claude']);
+  assert.match(out, /updated/);
+  assert.match(cli(['status', fixture]), /Up to date/);
+});
+
 ok('legacy .ai-index folder is migrated away on index', () => {
   const legacy = path.join(fixture, '.ai-index');
   fs.mkdirSync(legacy, { recursive: true });
@@ -525,6 +552,13 @@ ok('`hook` installs a pre-commit hook in .git/hooks', () => {
   const hook = fs.readFileSync(path.join(fixture, '.git', 'hooks', 'pre-commit'), 'utf8');
   assert.ok(hook.startsWith('#!/bin/sh'));
   assert.ok(hook.includes('ia-index update --quiet --if-changed --no-ai-config'));
+});
+
+ok('hook falls back to the local devDependency binary (npm/pnpm/yarn)', () => {
+  const hook = fs.readFileSync(path.join(fixture, '.git', 'hooks', 'pre-commit'), 'utf8');
+  assert.ok(hook.includes('command -v ia-index')); // global first
+  assert.ok(hook.includes('./node_modules/.bin/ia-index')); // local fallback
+  assert.ok(hook.includes('elif [ -x')); // only when the shim exists
 });
 
 ok('`hook` re-run updates the block without duplicating it', () => {
