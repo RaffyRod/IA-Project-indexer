@@ -527,6 +527,13 @@ ok('`hook` installs a pre-commit hook in .git/hooks', () => {
   assert.ok(hook.includes('ia-index update --quiet --if-changed --no-ai-config'));
 });
 
+ok('hook falls back to the local devDependency binary (npm/pnpm/yarn)', () => {
+  const hook = fs.readFileSync(path.join(fixture, '.git', 'hooks', 'pre-commit'), 'utf8');
+  assert.ok(hook.includes('command -v ia-index')); // global first
+  assert.ok(hook.includes('./node_modules/.bin/ia-index')); // local fallback
+  assert.ok(hook.includes('elif [ -x')); // only when the shim exists
+});
+
 ok('`hook` re-run updates the block without duplicating it', () => {
   cli(['hook', fixture]);
   const hook = fs.readFileSync(path.join(fixture, '.git', 'hooks', 'pre-commit'), 'utf8');

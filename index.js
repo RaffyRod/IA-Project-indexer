@@ -891,11 +891,19 @@ const HOOK_START = '# >>> ia-index pre-commit hook >>>';
 const HOOK_END = '# <<< ia-index pre-commit hook <<<';
 
 function hookBlock() {
+  // Resolution order: global install first, then the project's local
+  // devDependency (node_modules/.bin covers npm, pnpm and yarn shims).
+  // Never fails and never blocks a commit when neither is present.
   return [
     HOOK_START,
     '# Keeps the AI project index fresh on every commit.',
     '# Ultra fast: skips instantly when nothing changed (--if-changed).',
-    'command -v ia-index >/dev/null 2>&1 && ia-index update --quiet --if-changed --no-ai-config || true',
+    '# Works with a global install OR a local devDependency (npm/pnpm/yarn).',
+    'if command -v ia-index >/dev/null 2>&1; then',
+    '  ia-index update --quiet --if-changed --no-ai-config || true',
+    'elif [ -x "./node_modules/.bin/ia-index" ]; then',
+    '  "./node_modules/.bin/ia-index" update --quiet --if-changed --no-ai-config || true',
+    'fi',
     HOOK_END,
   ].join('\n');
 }

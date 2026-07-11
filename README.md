@@ -8,7 +8,7 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node >= 16](https://img.shields.io/badge/node-%3E%3D16-brightgreen.svg)](https://nodejs.org)
 [![dependencies: 0](https://img.shields.io/badge/dependencies-0-success.svg)](package.json)
-[![tests: 62](https://img.shields.io/badge/tests-62%20passing-success.svg)](test/test.js)
+[![tests: 63](https://img.shields.io/badge/tests-63%20passing-success.svg)](test/test.js)
 
 **Works with Claude · ChatGPT · Gemini · Cursor · Copilot · any AI assistant**
 
@@ -55,6 +55,39 @@ ia-index index        # done. < 1 second ⚡
 
 That's it. Claude Code, Codex and friends now read the index automatically.
 Prefer menus? Just run `ia-index` with no arguments. 🧭
+
+## 📦 Installation — two modes
+
+Requires **Node.js ≥ 16**. Windows, macOS and Linux. Pick per use case
+(they coexist fine):
+
+### Mode 1 — Global 🌍 (personal use, many projects)
+
+One install, use it in every repo on your machine:
+
+```bash
+npm install -g ia-project-indexer     # npm
+pnpm add -g ia-project-indexer        # pnpm
+yarn global add ia-project-indexer    # yarn
+```
+
+Verify: `ia-index --version`
+
+### Mode 2 — devDependency 👥 (team use, one project)
+
+Pin the version in the project so **the whole team gets it automatically**
+with their regular `npm install` — zero extra setup:
+
+```bash
+npm install --save-dev ia-project-indexer   # npm
+pnpm add -D ia-project-indexer              # pnpm
+yarn add -D ia-project-indexer              # yarn
+```
+
+Run it via `npx ia-index` (or `pnpm exec ia-index`). The **pre-commit hook
+resolves the binary automatically**: global install first, then the project's
+`node_modules/.bin/ia-index` — so the hook works for every teammate the
+moment they clone and install. 🚀
 
 ## 📁 It's per-project — index ALL your projects
 
@@ -116,21 +149,28 @@ ia-index hook
 - ⚡ **Instant when nothing changed** — the hook runs with `--if-changed`, so
   it skips in milliseconds and your commits never feel slower
 - 🤫 **One quiet line** when it does update — commit output stays clean
-- 🛡️ **Never blocks a commit** — if `ia-index` isn't installed on a teammate's
-  machine, the hook is a silent no-op (safe to commit the Husky file)
+- 📦 **Finds the binary anywhere** — global install first, then the project's
+  devDependency (`node_modules/.bin`, works with npm/pnpm/yarn shims)
+- 🛡️ **Never blocks a commit** — if `ia-index` isn't available at all on a
+  teammate's machine, the hook is a silent no-op (safe to commit the Husky file)
 - 🗑️ Uninstall anytime: `ia-index hook remove` (only our block is removed)
 
 <details>
 <summary><b>Prefer to configure it manually?</b> (custom hook managers, CI, etc.)</summary>
 
-Add this line wherever your workflow runs before/after changes land:
+Add this block wherever your workflow runs before/after changes land:
 
 ```sh
-command -v ia-index >/dev/null 2>&1 && ia-index update --quiet --if-changed --no-ai-config || true
+if command -v ia-index >/dev/null 2>&1; then
+  ia-index update --quiet --if-changed --no-ai-config || true
+elif [ -x "./node_modules/.bin/ia-index" ]; then
+  "./node_modules/.bin/ia-index" update --quiet --if-changed --no-ai-config || true
+fi
 ```
 
-It's the exact line the hook installs — copy it into lefthook, pre-push,
-a task runner or a CI job.
+It's the exact block the hook installs (global install → devDependency
+fallback → silent no-op) — copy it into lefthook, pre-push, a task runner
+or a CI job.
 
 </details>
 
@@ -239,7 +279,7 @@ regenerates it in under a second — or keeps it fresh automatically with
 ## 🧪 Tests
 
 ```bash
-npm test   # 62 assertions, zero test dependencies
+npm test   # 63 assertions, zero test dependencies
 ```
 
 Covers signature extraction in all 8 languages, folder exclusion, `.gitignore`
