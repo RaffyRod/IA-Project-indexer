@@ -305,10 +305,11 @@ function extractJsTs(content) {
       out.push({ kind: 'class', ...currentClass });
       continue;
     }
-    // methods inside a class (indented)
+    // methods inside a class (indented) — including getters/setters; decorated
+    // methods work too (the @decorator line simply doesn't match, the method does)
     if (currentClass) {
       m = line.match(
-        /^\s{2,6}(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+)*(?:async\s+)?(\w+)\s*\(/,
+        /^\s{2,6}(?:public\s+|private\s+|protected\s+|static\s+|readonly\s+)*(?:async\s+)?(?:get\s+|set\s+)?(\w+)\s*\(/,
       );
       if (m && !JS_KEYWORDS.has(m[1]) && !currentClass.methods.includes(m[1])) {
         currentClass.methods.push(m[1]);

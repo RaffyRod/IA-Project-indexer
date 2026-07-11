@@ -90,6 +90,19 @@ ok('ignores control-flow keywords as methods', () => {
   assert.deepStrictEqual(symbols[0].methods, ['run']);
 });
 
+ok('detects getters, setters and decorated methods', () => {
+  const src = [
+    'export class Account {',
+    '  get balance() {}',
+    '  set balance(v) {}',
+    "  @Get('/users')",
+    '  async findAll() {}',
+    '}',
+  ].join('\n');
+  const symbols = extractJsTs(src);
+  assert.deepStrictEqual(symbols[0].methods, ['balance', 'findAll']);
+});
+
 // ---------------------------------------------------- unit: extractPy
 
 console.log('\nextractPy()');
