@@ -507,6 +507,20 @@ ok('`update --if-changed` re-indexes when a file changed', () => {
   assert.match(out, /updated/);
 });
 
+ok('`status` detects DELETED files (no newer mtime left behind)', () => {
+  write('src/tmp-ghost.ts', 'export function ghost() {}\n');
+  cli(['index', fixture, '--no-claude']);
+  fs.rmSync(path.join(fixture, 'src/tmp-ghost.ts'));
+  const out = cli(['status', fixture]);
+  assert.match(out, /Outdated — 1 file\(s\) removed/);
+});
+
+ok('`update --if-changed` re-indexes after a deletion', () => {
+  const out = cli(['update', fixture, '--if-changed', '--quiet', '--no-claude']);
+  assert.match(out, /updated/);
+  assert.match(cli(['status', fixture]), /Up to date/);
+});
+
 ok('legacy .ai-index folder is migrated away on index', () => {
   const legacy = path.join(fixture, '.ai-index');
   fs.mkdirSync(legacy, { recursive: true });

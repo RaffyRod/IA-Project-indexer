@@ -597,11 +597,14 @@ function cmdIndex(root, opts = {}) {
   if (fs.existsSync(legacyDir)) fs.rmSync(legacyDir, { recursive: true, force: true });
 
   // --if-changed: skip everything if no file is newer than the current index
-  // (this is what makes the pre-commit hook feel instant)
+  // AND the file count matches the last run (a deletion lowers the count but
+  // leaves no newer mtime behind). This is what keeps the hook instant.
   const existingIndex = path.join(root, INDEX_DIR, 'PROJECT-INDEX.md');
   if (opts.ifChanged && fs.existsSync(existingIndex)) {
     const indexMtime = fs.statSync(existingIndex).mtimeMs;
-    if (!files.some(f => f.mtimeMs > indexMtime)) {
+    const prev = loadRegistry()[root];
+    const sameCount = !prev || !Number.isFinite(prev.files) || prev.files === files.length;
+    if (sameCount && !files.some(f => f.mtimeMs > indexMtime)) {
       if (!opts.quiet) console.log(`✅ Index already fresh — nothing to do. ⚡`);
       return;
     }
@@ -834,6 +837,9 @@ function cmdStatus(root) {
   const indexMtime = fs.statSync(indexFile).mtimeMs;
   const { files } = walk(root, loadGitignore(root));
   const changed = files.filter(f => f.mtimeMs > indexMtime).length;
+  // deletions leave no newer mtime behind — detect them via the file count
+  const removed =
+    entry && Number.isFinite(entry.files) ? Math.max(0, entry.files - files.length) : 0;
 
   if (entry) {
     console.log(`   🕒 Indexed:   ${String(entry.indexedAt).slice(0, 16).replace('T', ' ')}`);
@@ -848,11 +854,14 @@ function cmdStatus(root) {
     console.log(`   📄 Index:     ${c.cyan(indexFile)}`);
   }
 
-  if (changed === 0) {
+  if (changed === 0 && removed === 0) {
     console.log(`   💚 State:     ${c.green('✅ Up to date — your AI has fresh knowledge!')}`);
   } else {
+    const parts = [];
+    if (changed) parts.push(`${changed} file(s) changed`);
+    if (removed) parts.push(`${removed} file(s) removed`);
     console.log(
-      `   🟡 State:     ${c.yellow(`⚠️  Outdated — ${changed} file(s) changed since last index`)}`,
+      `   🟡 State:     ${c.yellow(`⚠️  Outdated — ${parts.join(', ')} since last index`)}`,
     );
     console.log(`   👉 Refresh it with: ${c.green('ia-index update')}  ⚡`);
   }

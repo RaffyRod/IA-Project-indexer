@@ -8,7 +8,7 @@
 [![license: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![node >= 16](https://img.shields.io/badge/node-%3E%3D16-brightgreen.svg)](https://nodejs.org)
 [![dependencies: 0](https://img.shields.io/badge/dependencies-0-success.svg)](package.json)
-[![tests: 63](https://img.shields.io/badge/tests-63%20passing-success.svg)](test/test.js)
+[![tests: 65](https://img.shields.io/badge/tests-65%20passing-success.svg)](test/test.js)
 
 **Works with Claude · ChatGPT · Gemini · Cursor · Copilot · any AI assistant**
 
@@ -279,7 +279,7 @@ regenerates it in under a second — or keeps it fresh automatically with
 ## 🧪 Tests
 
 ```bash
-npm test   # 63 assertions, zero test dependencies
+npm test   # 65 assertions, zero test dependencies
 ```
 
 Covers signature extraction in all 8 languages, folder exclusion, `.gitignore`
